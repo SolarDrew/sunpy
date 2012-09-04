@@ -53,8 +53,7 @@ def aiaprep(aiamap):
     aiamap.reference_pixel['x'] = aiamap.shape[1]/2. + 0.5
     aiamap.reference_pixel['y'] = aiamap.shape[0]/2. + 0.5
     aiamap.scale = {'x': scale_ref, 'y':scale_ref}
-#    oindex0['CROTA2'] = 0.0
-    # %% might gack if rhs values don't exist    
-#    oindex0['R_SUN']  = iindex0['RSUN_OBS']/iindex0['CDELT1']
-#    oindex0['LVL_NUM'] = 1.5
+    aiamap.rotation_angle = {'x': 0.0, 'y':0.0}
+    aiamap.processing_level = 1.5
+    
     return aiamap
