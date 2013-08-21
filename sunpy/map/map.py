@@ -821,8 +821,8 @@ Dimension:\t [%d, %d]
         kpos = centre - np.dot(mati, (centre + shift))  
         # kpos and mati are the two transform constants, kpos is a 2x2 array
         rsmat, offs =  mati, np.squeeze((kpos[0,0], kpos[1,0]))
-        print rsmat
-        print offs
+        #print rsmat
+        #print offs
         
         if interpolation == 'spline':
             # This is the scipy call
