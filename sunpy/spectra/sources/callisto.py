@@ -11,7 +11,10 @@ import urllib2
 
 import numpy as np
 
-import pyfits
+try:
+    import astropy.io.fits as pyfits
+except ImportError:
+    import pyfits
 
 from itertools import izip, chain
 from functools import partial
@@ -38,8 +41,23 @@ _DAY = datetime.timedelta(days=1)
 
 DATA_SIZE = datetime.timedelta(seconds=15*60)
 
+def parse_filename(href):
+    name = href.split('.')[0]
+    try:
+        inst, date, time, no = name.rsplit('_')
+        dstart = datetime.datetime.strptime(date + time, TIME_STR)
+    except ValueError:
+        # If the split fails, the file name does not match out
+        # format,so we skip it and continue to the next
+        # iteration of the loop.
+        return None
+    return inst, no, dstart
 
 
+PARSERS = [
+    # Everything starts with ""
+    ("", parse_filename)
+]
 def query(start, end, instruments=None, url=DEFAULT_URL):
     """ Get URLs for callisto data from instruments between start and end.
     
@@ -60,16 +78,15 @@ def query(start, end, instruments=None, url=DEFAULT_URL):
             soup = BeautifulSoup(opn)
             for link in soup.find_all("a"):
                 href = link.get("href")
-                name = href.split('.')[0]
-                try:
-                    inst, date, time, no = name.split('_')
-                except ValueError:
-                    # If the split fails, the file name does not match out
-                    # format,so we skip it and continue to the next
-                    # iteration of the loop.
+                for prefix, parser in PARSERS:
+                    if href.startswith(prefix):
+                        break
+
+                result = parser(href)
+                if result is None:
                     continue
-                dstart = datetime.datetime.strptime(date + time, TIME_STR)
-                
+                inst, no, dstart = result
+
                 if (instruments is not None and
                     inst not in instruments and 
                     (inst, int(no)) not in instruments):
@@ -107,8 +124,8 @@ class CallistoSpectrogram(LinearTimeSpectrogram):
     """ Classed used for dynamic spectra coming from the Callisto network.
     
     
-    Additional (not inherited) parameters
-    -------------------------------------
+    Attributes
+    ----------
     header : pyfits.Header
         main header of the FITS file
     axes_header : pyfits.Header
@@ -232,7 +249,7 @@ class CallistoSpectrogram(LinearTimeSpectrogram):
             try:
                 fq = axes.data['frequency']
             except KeyError:
-                fq = None
+                fq = None 
         
         if tm is not None:
             # Fix dimensions (whyever they are (1, x) in the first place)
@@ -250,7 +267,7 @@ class CallistoSpectrogram(LinearTimeSpectrogram):
 
         content = header["CONTENT"]
         instruments = set([header["INSTRUME"]])
-        
+    
         return cls(
             data, time_axis, freq_axis, start, end, t_init, t_delt,
             t_label, f_label, content, instruments, 
@@ -265,7 +282,7 @@ class CallistoSpectrogram(LinearTimeSpectrogram):
         # Because of how object creation works, there is no avoiding
         # unused arguments in this case.
         # pylint: disable=W0613
-        
+
         super(CallistoSpectrogram, self).__init__(
             data, time_axis, freq_axis, start, end,
             t_init, t_delt, t_label, f_label,
