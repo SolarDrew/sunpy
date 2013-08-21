@@ -2,7 +2,6 @@
 """
 Provides processing routines for data captured with the AIA instrument on SDO.
 """
-
 import numpy as np
 from sunpy.map.sources.sdo import AIAMap
 
@@ -50,10 +49,12 @@ def aiaprep(aiamap):
         
     
     #; Update header tag values as needed:
-    aiamap.reference_pixel['x'] = aiamap.shape[1]/2. + 0.5
-    aiamap.reference_pixel['y'] = aiamap.shape[0]/2. + 0.5
-    aiamap.scale = {'x': scale_ref, 'y':scale_ref}
-    aiamap.rotation_angle = {'x': 0.0, 'y':0.0}
-    aiamap.processing_level = 1.5
+    aiamap.meta['crpix1'] = aiamap.shape[1]/2. + 0.5
+    aiamap.meta['crpix2'] = aiamap.shape[0]/2. + 0.5
+    aiamap.meta['cunit1'] = scale_ref
+    aiamap.meta['cunit2'] = scale_ref
+    aiamap.meta['crota1'] = 0.0
+    aiamap.meta['crota2'] = 0.0
+    aiamap.meta['lvl_num']= 1.5
     
     return aiamap
