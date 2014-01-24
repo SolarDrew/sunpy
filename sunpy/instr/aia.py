@@ -3,6 +3,7 @@
 Provides processing routines for data captured with the AIA instrument on SDO.
 """
 import numpy as np
+import warnings
 from sunpy.map.sources.sdo import AIAMap
 
 def aiaprep(aiamap):
@@ -17,6 +18,9 @@ def aiaprep(aiamap):
         -------
         A level 1.5 copy of aiamap
     """
+    warnings.warn('This version of aiaprep() has not been fully tested against the original '\
+        'SolarSoft version and may not produce exactly the same results. Use with caution.',
+        Warning)
     assert isinstance(aiamap,AIAMap)
     
     #I believe this is the target pixel scale for SDO data
