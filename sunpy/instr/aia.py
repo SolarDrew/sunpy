@@ -8,7 +8,7 @@ from sunpy.map.sources.sdo import AIAMap
 
 def aiaprep(aiamap):
     """Processes a level 1 AIAMap into a level 1.5 AIAMap
-        
+
         Parameters
         ----------
         aiamap: AIAMap instance
@@ -17,10 +17,13 @@ def aiaprep(aiamap):
         Returns
         -------
         A level 1.5 copy of aiamap
+
+        Warning
+        -------
+        This version of aiaprep() has not been fully tested against the original SolarSoft version.
+        It may not produce exactly the same results.
+        Use with caution.
     """
-    warnings.warn('This version of aiaprep() has not been fully tested against the original '\
-        'SolarSoft version and may not produce exactly the same results. Use with caution.',
-        Warning)
     assert isinstance(aiamap,AIAMap)
     
     #I believe this is the target pixel scale for SDO data
