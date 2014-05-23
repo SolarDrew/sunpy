@@ -2,8 +2,9 @@
 
 import os
 import numpy as np
-import datetime as dt
+import datetime
 from glob import glob
+from scipy.io.idl import readsav as read
 
 
 def aia_bp_read_response_table(tablefile, silent=False):
@@ -13,9 +14,8 @@ def aia_bp_read_response_table(tablefile, silent=False):
 
     hastable = os.path.isfile(tablefile)
     if hastable:
-        #######temp_tablefile = STRJOIN(STRSPLIT(/extract, tablefile, '*'))
-        temp_tablefile = tablefile.replace('*', '')
-        tabledat = RD_TFILE(temp_tablefile, 14)
+        temp_tablefile = tablefile.replace('*', '') #temp_tablefile = STRJOIN(STRSPLIT(/extract, tablefile, '*'))
+        tabledat = np.loadtxt(temp_tablefile) #RD_TFILE(temp_tablefile, 14)
     else:
         if not silent:
             print 'aia_bp_read_response_table: Missing file ' + tablefile
@@ -52,9 +52,162 @@ def aia_bp_read_response_table(tablefile, silent=False):
     return tablestr
 
 
+def AIA_BP_CORRECTIONS(tabledat, sampleutc, respstr, ver_date='',# effarea=effarea,
+                       tresp=None, uv=False, pstop=False, silent=False):
+    """# INPUT PARAMETERS:
+    #	tabledat	--	a string array holding data read in from the AIA response table .txt file
+    #	sampleutc	--	CCSDS-formatted time string describing the time for which the response
+    #					should be calculated
+    #	respstr		--	the structure giving the instrument response. Should be either the short-form
+    #					effective area or temperature response
+    #	ver_date	--	a string specifying the version date of the response table file. If not
+    #					specified, defaults to a null string
+    #
+    # KEYWORD PARAMETERS:
+    #	/effarea	--	respstr is an effective area (wavelength response) structure
+    #	/tresp		--	respstr is a temperature response structure
+    #
+    # RETURNS:
+    #	corr_str		--	a structure containing a description of the corrections that 
+    #					can be applied to the response."""
+
+    loud = not silent
+
+    #+++++++++++++++++++++++++++
+    # Parse out information from the response table strings
+    #---------------------------
+    waves =	 tabledat['wavelnth']
+    startts	 = tabledat['t_start']
+    endts = tabledat['t_stop']
+    ea0s = tabledat['eff_area']
+    effwvls	 = tabledat['eff_wvln']
+    eap1s = tabledat['effa_p1']
+    eap2s = tabledat['effa_p2']
+    eap3s = tabledat['effa_p3']
+    
+    stais = ANYTIM2TAI(startts)
+    etais = ANYTIM2TAI(endts)
+    ttai = ANYTIM2TAI(sampleutc)
+
+    uwaves = UNIQ(waves[SORT(waves)])
+    if uv:
+        uwaves = uwaves[waves[uwaves] > 1000]
+    else:
+        uwaves = uwaves[waves[uwaves] < 1000]
+    channels = 'A' + STRTRIM(waves[uwaves], 2)
+
+    numchan = len(channels)
+    rtags	= respstr.keys()
+
+    #+++++++++++++++++++++++++++
+    # Set up variables to hold data for the correction structure
+    #---------------------------
+    epochs 	=	STRARR(numchan)
+    etais	=	DBLARR(numchan)
+    ewaves	=	DBLARR(numchan)
+    ea0		=	DBLARR(numchan)
+    ea1		=	DBLARR(numchan)
+    p1		=	DBLARR(numchan)
+    p2		=	DBLARR(numchan)
+    p3		=	DBLARR(numchan)
+    eve0	=	DBLARR(numchan)
+
+    #+++++++++++++++++++++++++++
+    # Set up the self-documenting info string arrays
+    #---------------------------
+    tinfo	= [	'VERSION_DATE: Date of the response table file',
+			'EPOCH: Start time of last update to time dependent response (last bakeout of each channel?)',
+			'EPOCH_TAI: TAI time of EPOCH',
+			'SAMPLETIME: Time for which the response was calculated',
+			'SAMPLE_TAI: TAI time of sample',
+			'EA_EPOCH_OVER_T0: Ratio of effective area at EPOCH time to effective area at t0 (24-mar-2010)',
+			'EA_SAMPLE_OVER_EPOCH: Ratio of effective area at sample time to effective area at EPOCH',
+			'EA_SAMPLE_OVER_T0: Product of EA_EPOCH_OVER_T0 * EA_SAMPLE_OVER_EPOCH',
+			'P1/P2/P3: Polynomial terms for time dependent correction',
+			'Polynomial: ea_t1 = ea_epoch * (1 + p1*dt + p2*dt^2 + p3*dt^3)',
+			'Polynomial: t1 = sample date  dt = (sample date) - (epoch)  in days',
+			'EFFWAVE: Wavelength at which effective area ratio for that channel is calculated',
+			'CHANNELS: List of channels for which response trend is tracked' ]
+
+    einfo	= [ 'AIA_OVER_EVE: Ratio of AIA effective area implied by EVE data on 24-mar-2010 to ground AIA measurements',
+			'EFFWAVE: Wavelength at which effective area ratio for each channel is calculated',
+			'CHANNELS: List of channels for which response trend is tracked',
+			'EVE_VERSION: Version of the EVE data used to calculate the normalization' ]
+
+    """cinfo	= [	'EMPIRICAL_OVER_RAW: Ratio of empirically-corrected temperature response to response using only "raw" CHIANTI data',
+			'LOGTE: Temperature grid for empirical correction',
+			'CHANNELS: List of channels for which the correction is derived' ]"""
+
+    ainfo 	= [ 'TIME: Sub-structure describing how the time-dependent response correction for each channel is calculated',
+			'TIME_APPLIED: Does the response function use the time-dependent correction?',
+			'EVENORM: Sub-structure giving the normalization constant used to ensure agreement with EVE observations',
+			'EVENORM_APPLIED: Does the response function use the EVE-derived normalization constant?',
+			'',
+			'' ]
+
+    if uv:
+        ainfo[2] = 'SEENORM: Sub-structure giving the normalization constant used to ensure agreement with TIMED/SEE observations'
+        ainfo[3] = 'SEENORM_APPLIED: Does the response function use the TIMED/SEE-derived normalization constant?'
+
+    #++++++++++++++++++++++++++++++++
+    # Loop through wavelengths and populate the correction structures for each 
+    # wavelength
+    #--------------------------------
+    for i in range(numchan):
+        thiswave 	= waves[uwaves[i]]
+        wavelines 	= np.where(waves == thiswave)#, numwavelines)
+        wlsort		= startts[wavelines]
+        wlsort.sort()
+        presample	= np.where(stais[wavelines[wlsort]] <= ttai)#, numpre)
+        useline		= wavelines[wlsort[presample[len(presample)-1]]]	#	The line in the response table corresponding to the
+															# 	epoch for this sampledate and this wavelength
+        firstline	= wavelines[wlsort[0]]						#	The line in the response table corresponding to the
+															#	earliest epoch for this wavelength
+        if startts[firstline] != '2010-03-24T00:00:00.000':
+            if loud:
+                print 'AIA_BP_CORRECTIONS: Start time of first epoch is not nominal'
+
+        epochs[i] 	= startts[useline]
+        etais[i]	= stais[useline]
+        ewaves[i]	= effwvls[useline]
+        p1[i]		= eap1s[useline]
+        p2[i]		= eap2s[useline]
+        p3[i]		= eap3s[useline]
+
+        thisea = respstr[np.where(rtags == channels[i])]
+        nom_ea0 = INTERPOL(thisea.ea, thisea.wave, ewaves[i])
+        eve0[i]	= ea0s[firstline] / nom_ea0
+        ea0[i]	= ea0s[useline] / ea0s[firstline]
+        dt 		= (ttai - etais[i]) / 86400.0
+        ea1[i]	= 1 + p1[i] * dt + p2[i] * dt^2 + p3[i] * dt^3
+
+    if pstop:
+        return
+
+    #+++++++++++++++++++++++++++
+    # Generate the sub-structures and output structure
+    #---------------------------
+    tdepend_str = {'VERSION_DATE': ver_date, 'EPOCH': epochs,
+                   'EPOCH_TAI': etais, 'SAMPLETIME': sampleutc,
+                   'SAMPLE_TAI': ttai, 'EA_EPOCH_OVER_T0': ea0,
+                   'EA_SAMPLE_OVER_EPOCH': ea1, 'EA_SAMPLE_OVER_T0': ea1 * ea0,
+                   'P1': p1, 'P2': p2, 'P3': p3, 'EFFWAVE': ewaves,
+                   'CHANNELS': channels, 'INFO': tinfo}
+
+    evenorm_str = {'AIA_OVER_EVE': eve0, 'EFFWAVE': ewaves,
+                   'CHANNELS': channels, 'EVE_VERSION': 'EVL_L2_*_002',
+                   'INFO': einfo}
+
+    corr_str = {'TIME': tdepend_str, 'TIME_APPLIED': 'NO', 
+                'EVENORM': evenorm_str, 'EVENORM_APPLIED': 'NO',
+                'INFO': ainfo}
+
+    return corr_str
+
+
 def aia_bp_parse_effarea(oldfullresp, sampleutc=None, resptable=None, 
                          version=None, evenorm=None, timedepend=None,
-                         ver_date=None, channels=None, dn=False):#, uv=uv):
+                         ver_date=None, channels=None, dn=False, uv=False):
     if len(version) == 0:
         version = 2
     otags = np.array(oldfullresp.keys())
@@ -85,7 +238,7 @@ def aia_bp_parse_effarea(oldfullresp, sampleutc=None, resptable=None,
     # calibration
     #--------------------------------
     if len(resptable) > 0:
-        corr_str = AIA_BP_CORRECTIONS(resptable, sampleutc, oldfullresp, ver_date, effarea=True, uv=uv) # ??? AAAAAAAARGH
+        corr_str = AIA_BP_CORRECTIONS(resptable, sampleutc, oldfullresp, ver_date, effarea=True, uv=uv)
         if evenorm:
             corr_str.evenorm_applied = 'YES' # ???
             evechan = corr_str.evenorm['channels'][:3]
@@ -456,7 +609,7 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
                 print 'chiantifix requires version > 1\nDisabling chiantifix'
                 chiantifix = False
             if chiantifix:
-                pass#RESTGEN, file = aiaresp + '/' + vstring + 'chiantifix.genx', str = ch_str # Don't know what restgen does so I can't really translate this just now
+                ch_str = read(os.join(aiaresp, vstring, 'chiantifix.sav'))#RESTGEN, file = aiaresp + '/' + vstring + 'chiantifix.genx', str = ch_str
         else:
             print 'chiantifix only applies for temperature response'
 
@@ -467,16 +620,16 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
     if emiss:
         filename = os.join(aiaresp, vstring) + 'fullemiss.genx'
         if os.path.isfile(filename):
-            pass#RESTGEN,file=filename,struct=data # No idea what restgen does
+            data = read(filename) #RESTGEN,file=filename,struct=data
         else:
             print 'Cannot find AIA emissivity file', filename
             return filename
-        if full:
+        """if full:
             pass#output = data
         else:
-            output = None#CREATE_STRUCT(data.total, 'CH_Info', data.general) # Not a clue
-        output['Version'] = int(version)
-        return output
+            output = None#CREATE_STRUCT(data.total, 'CH_Info', data.general) # Not a clue"""
+        data['Version'] = int(version)
+        return data
     else:
         #++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         # Everything except emissivity may be time dependent, so read in the
@@ -497,7 +650,7 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
         ver_date = respversion
         tablefile = tablefilebase + 'response_table.txt'
         tabledat = aia_bp_read_response_table(tablefile, silent = silent) # Gonna need to figure out what this does
-        sampledate = dt.datetime.now()
+        sampledate = datetime.datetime.now()
         if timedepend:
             if timedepend_date != '1': # There's some IDL keywordy bullsh!t going on here
                 sampledate = timedepend_date
@@ -507,7 +660,7 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
     if uv:
         filename = os.join(aiaresp, vstring) + 'fuv_fullinst.genx'
         if os.path.isfile(filename):
-            RESTGEN,file=filename,struct = data # ??
+            data = read(filename) #RESTGEN,file=filename,struct = data
         else:
             print 'Cannot find AIA UV area file', filename
             return filename
@@ -539,18 +692,18 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
             if not silent:
                 print 'Generating temperature response function from', afilename, efilename
     
-        RESTGEN, file = afilename, str = areadat # ??
+        areadat = read(afilename) #RESTGEN, file = afilename, str = areadat
         if not noblend:
-            areadat = aia_bp_blend_channels(areadat) # ??
+            areadat = aia_bp_blend_channels(areadat)
         if not all:
             chanlist = ['A94', 'A131', 'A171', 'A193', 'A211', 'A304', 'A335']
         area = aia_bp_parse_effarea(areadat, dn=dn, channels=chanlist, version=version,
                                     sampleutc=sampleutc, resptable=tabledat, evenorm=evenorm,
                                     timedepend=timedepend, ver_date=ver_date)
-        RESTGEN, file = efilename, str = emiss_str # ???
+        emiss_str = read(efilename) #RESTGEN, file = efilename, str = emiss_str
         
         #t_short_resp = AIA_BP_AREA2TRESP(short_area, emiss_str, t_full_resp, emversion) # ???
-        resp = aia_bp_parse_tresp(t_full_resp, chiantifix=ch_str) # ???
+        resp = aia_bp_parse_tresp(t_full_resp, chiantifix=ch_str)
 
         return resp
 
@@ -558,7 +711,7 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
     if area:
         filename = os.join(aiaresp, vstring) + 'all_fullinst.genx'
         if os.path.isfile(filename):
-            RESTGEN, file=filename, struct = data # ???
+            data = read(filename) #RESTGEN, file=filename, struct = data
         else:
             print 'Cannot find AIA response file', filename
             return filename
