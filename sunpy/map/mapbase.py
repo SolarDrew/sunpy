@@ -96,6 +96,11 @@ class GenericMap(astropy.nddata.NDData):
       matrix and CDELT, along with the other keywords specified in the WCS papers.
       All subclasses of this class must convert their header information to
       this formalism. The CROTA to PCi_j conversion is done in this class.
+
+    .. warning::
+        This class currently assumes that a header with the CDi_j matrix 
+        information also includes the CDELT keywords, without these keywords
+        this class will not process the WCS information. This will be fixed.
     """
 
     def __init__(self, data, header, **kwargs):
@@ -313,6 +318,7 @@ Dimension:\t [%d, %d]
     @property
     def scale(self):
         """Image scale along the x and y axes in units/pixel (cdelt1/2)"""
+        #TODO: Fix this if only CDi_j matrix is provided
         return {'x': self.meta.get('cdelt1', 1.),
                 'y': self.meta.get('cdelt2', 1.),}
 
@@ -567,6 +573,11 @@ Dimension:\t [%d, %d]
         new_map : AIAMap
             A new AIAMap instance containing the rotated and rescaled data of
             the original map.
+        
+        Notes
+        -----
+        This function will remove old CROTA keywords from the header.
+        This function will also convert a CDi_j matrix to a PCi_j matrix.
         """
         if angle is not None and rmatrix is not None:
             raise ValueError("You  cannot specify both an angle and a matrix")
@@ -616,9 +627,14 @@ Dimension:\t [%d, %d]
             new_map.meta['crpix1'] += shift[0]
             new_map.meta['crpix2'] += shift[1]
 
-        #Remove old CROTA kwargs because we have saved a new PCi_j matrix.
+        # Remove old CROTA kwargs because we have saved a new PCi_j matrix.
         new_map.meta.pop('CROTA1', None)
         new_map.meta.pop('CROTA2', None)
+        # Remove CDi_j header
+        new_map.meta.pop('CD1_1', None)
+        new_map.meta.pop('CD1_2', None)
+        new_map.meta.pop('CD2_1', None)
+        new_map.meta.pop('CD2_2', None)
 
         return new_map
 
