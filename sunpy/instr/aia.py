@@ -85,16 +85,16 @@ def AIA_BP_CORRECTIONS(tabledat, sampleutc, respstr, ver_date='',# effarea=effar
     eap2s = tabledat['effa_p2']
     eap3s = tabledat['effa_p3']
     
-    stais = ANYTIM2TAI(startts)
-    etais = ANYTIM2TAI(endts)
-    ttai = ANYTIM2TAI(sampleutc)
+    stais = datetime.datetime(startts)#ANYTIM2TAI(startts) # No idea if these are actually equivalent, but it seems a reasonable guess
+    etais = datetime.datetime(endts)#ANYTIM2TAI(endts)
+    ttai = datetime.datetime(sampleutc)#ANYTIM2TAI(sampleutc)
 
     uwaves = UNIQ(waves[SORT(waves)])
     if uv:
         uwaves = uwaves[waves[uwaves] > 1000]
     else:
         uwaves = uwaves[waves[uwaves] < 1000]
-    channels = 'A' + STRTRIM(waves[uwaves], 2)
+    channels = 'A' + waves[uwaves].strip()
 
     numchan = len(channels)
     rtags	= respstr.keys()
@@ -102,15 +102,15 @@ def AIA_BP_CORRECTIONS(tabledat, sampleutc, respstr, ver_date='',# effarea=effar
     #+++++++++++++++++++++++++++
     # Set up variables to hold data for the correction structure
     #---------------------------
-    epochs 	=	STRARR(numchan)
-    etais	=	DBLARR(numchan)
-    ewaves	=	DBLARR(numchan)
-    ea0		=	DBLARR(numchan)
-    ea1		=	DBLARR(numchan)
-    p1		=	DBLARR(numchan)
-    p2		=	DBLARR(numchan)
-    p3		=	DBLARR(numchan)
-    eve0	=	DBLARR(numchan)
+    epochs = []#STRARR(numchan)
+    etais =	np.zeros((numchan))#DBLARR(numchan)
+    ewaves = np.zeros((numchan))#DBLARR(numchan)
+    ea0 = np.zeros((numchan))#DBLARR(numchan)
+    ea1 = np.zeros((numchan))#DBLARR(numchan)
+    p1 = np.zeros((numchan))#DBLARR(numchan)
+    p2 = np.zeros((numchan))#DBLARR(numchan)
+    p3 = np.zeros((numchan))#DBLARR(numchan)
+    eve0 = np.zeros((numchan))#DBLARR(numchan)
 
     #+++++++++++++++++++++++++++
     # Set up the self-documenting info string arrays
@@ -167,7 +167,7 @@ def AIA_BP_CORRECTIONS(tabledat, sampleutc, respstr, ver_date='',# effarea=effar
             if loud:
                 print 'AIA_BP_CORRECTIONS: Start time of first epoch is not nominal'
 
-        epochs[i] 	= startts[useline]
+        epochs.append(startts[useline])
         etais[i]	= stais[useline]
         ewaves[i]	= effwvls[useline]
         p1[i]		= eap1s[useline]
