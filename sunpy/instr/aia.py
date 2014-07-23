@@ -4,7 +4,75 @@ import os
 import numpy as np
 import datetime
 from glob import glob
+from sunpy.time import parse_time
 from scipy.io.idl import readsav as read
+
+
+def aia_bp_area2tresp(area_struct, emiss_struct, fulltrespstr, emversion):
+    if len(emiss_struct) == 0:
+        emiss_struct = AIA_GET_RESPONSE(emiss=True, full=True)
+        emversion = emiss_struct.version
+    endif
+    if N_ELEMENTS(emversion) eq 0 then begin
+        BOX_MESSAGE, ['AIA_BP_AREA2TRESP : emversion not specified', 'Plugging in dummy value of 0']
+        emversion = 0
+    endif
+
+    emissinfo = STR_SUBSET(emiss_struct.general, 'abundfile,source,ioneq_logt,ioneq_name,ioneq_ref,wvl_limits,model_name,model_ne,model_pe,model_te,wvl_units,add_protons,version,photoexcitation')
+    areatags = TAG_NAMES(area_struct)
+    datetag = area_struct.date
+    gendate = AIA_BP_DATE_STRING(/time)
+
+    trespstr = CREATE_STRUCT('Name', area_struct.name, $
+        'Date', datetag, $
+        'EffArea_Version', area_struct.version, 'Emiss_Version', emversion, $
+        'Channels', area_struct.channels, $
+        'Logte', emiss_struct.total.logte)
+
+    fulltrespstr = CREATE_STRUCT('Name', area_struct.name, $
+        'Date', datetag, 'LoadDate', gendate, $
+        'EffArea_Version', area_struct.version, 'Emiss_Version', emversion, $
+        'EmissInfo', emissinfo, $
+        'Channels', area_struct.channels, $
+        'Logte', emiss_struct.total.logte, $
+        'Wave', emiss_struct.total.wave)
+
+    hasdn = STRPOS(STRUPCASE(area_struct.units), 'DN')
+    if hasdn lt 0 then countunits = 'phot' else countunits = 'DN'
+    for i = 0, N_ELEMENTS(area_struct.channels)-1 do begin
+        thischan = area_struct.channels[i]
+        thisareastr = area_struct.(WHERE(areatags eq thischan))	
+        thistrespstr = AIA_BP_MAKE_TRESP(emiss_struct.total.wave, emiss_struct.total.logte, $
+            emiss_struct.total.emissivity, thisareastr.wave, thisareastr.ea, $
+            thischan, thisareastr.platescale, thisfullstr, countunits)
+        if i eq 0 then begin
+            shortchans = CREATE_STRUCT(thischan, thistrespstr)
+            longchans = CREATE_STRUCT(thischan + '_FULL', thisfullstr)
+            tresp = thistrespstr.tresp
+            twresp = thisfullstr.full_tresp
+            units = thisfullstr.units
+            full_units = thisfullstr.full_units
+        endif else begin
+            shortchans = CREATE_STRUCT(shortchans, thischan, thistrespstr)
+            longchans = CREATE_STRUCT(longchans, thischan + '_FULL', thisfullstr)
+            tresp = [[tresp], [thistrespstr.tresp]]
+            twresp = [[[twresp]], [[thisfullstr.full_tresp]]]
+        endelse
+    endfor
+
+    notestr = 'Made by AIA_BP_AREA2TRESP'
+    trespstr = CREATE_STRUCT(trespstr, 'all', tresp, 'units', countunits, shortchans, 'Note', notestr)
+    fulltrespstr = CREATE_STRUCT(fulltrespstr, 'tresp', tresp, 'twresp', twresp, $
+        'tunits', units, 'twunits', full_units, shortchans, longchans, 'note', notestr)
+
+    corrtag = WHERE(areatags eq 'CORRECTIONS', hascorr)
+    if hascorr gt 0 then begin
+        corrstr = area_struct.corrections
+        trespstr = CREATE_STRUCT(trespstr, 'Corrections', corrstr)
+        fulltrespstr = CREATE_STRUCT(fulltrespstr, 'corrections', corrstr)
+    endif
+
+    RETURN, trespstr
 
 
 def aia_bp_read_response_table(tablefile, silent=False):
@@ -308,7 +376,7 @@ def aia_bp_parse_effarea(oldfullresp, sampleutc=None, resptable=None,
         newfullresp[thischan] = shortstr
         newfullresp[thischan+'_full'] = thisfullstr
 
-    smallresp['all'] = TRANSPOSE(all)
+    smallresp['all'] = all.T
     smallresp['platescale'] = platescale
     smallresp['units'] = units
     #smallrespstr) # ?????
@@ -440,12 +508,25 @@ def aia_bp_parse_tresp(oldfullresp, smallresp, chiantifix=None, channels=None):
         channels = oldfullresp.channels
         cindex = range(len(channels))
 
-    newfullresp = STR_SUBSET(oldfullresp, 'name,date,effarea_version,emiss_version,emissinfo,logte,wave,tunits,twunits')
+    newfullresp = {'name': oldfullresp['name'], 
+                   'date': oldfullresp['date'],
+                   'effarea_version': oldfullresp['effarea_version'],
+                   'emiss_version': oldfullresp['emiss_version'],
+                   'emissinfo': oldfullresp['emissinfo'],
+                   'logte': oldfullresp['logte'],
+                   'wave': oldfullresp['wave'],
+                   'tunits': oldfullresp['tunits'],
+                   'twunits': oldfullresp['twunits']}
     newfullresp['channels'] = channels.upper()
     newfullresp['tresp'] = oldfullresp['tresp'][:,cindex]
     newfullresp['twresp'] = oldfullresp['twresp'][:,:,cindex]
 
-    smallresp = STR_SUBSET(newfullresp, 'name,date,effarea_version,emiss_version,emissinfo,channels')
+    smallresp = {'name': newfullresp['name'],
+                 'date': newfullresp['date'],
+                 'effarea_version': newfullresp['effarea_version'],
+                 'emiss_version': newfullresp['emiss_version'],
+                 'emissinfo': newfullresp['emissinfo'],
+                 'channels': newfullresp['channels']}
     smallresp['units'] = newfullresp['tunits']
     smallresp['logte'] = newfullresp['logte']
 
@@ -454,7 +535,10 @@ def aia_bp_parse_tresp(oldfullresp, smallresp, chiantifix=None, channels=None):
         chanindex = np.where(otags == thischan)
         thisstr = oldfullresp[chanindex]
         newfullresp[thischan] = thisstr
-        smallrespstr = STR_SUBSET(thisstr, 'name,units,logte,tresp')
+        smallrespstr = {'name': thisstr['name'],
+                        'units': thisstr['units'],
+                        'logte': thisstr['logte'],
+                        'tresp': thisstr['tresp']}
         if i == 0:
             all = thisstr['tresp']
             #smallresps[thischan] = smallrespstr
@@ -521,8 +605,8 @@ def aia_bp_parse_tresp(oldfullresp, smallresp, chiantifix=None, channels=None):
 
 def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
 	full=False, all=False, uv=False, dn=False, phot=False, noblend=False,
-	evenorm=False, timedepend=False, chiantifix=False, version=4,
-     emversion=False, respversion=False, silent=False, loud=False):
+	evenorm=False, timedepend_date=False, chiantifix=False, version=4,
+      emversion=False, respversion=False, silent=False, loud=False):
 
     aiaresp = '~/sunpy/data/'
     if aiaresp == '':
@@ -640,9 +724,9 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
         respfiles = glob(tablefilebase + '*_response_table.txt')
         for i, fname in enumerate(respfiles):
             respfiles[i] = fname[len(tablefilebase):len(tablefilebase)+15] #STRMID(respfiles[i], STRLEN(tablefilebase), 15) #FFS IDL
-        respfile_tais = ANYTIM2TAI(FILE2TIME(respfiles)) # What the flying f*@! is this?
+        respfile_tais = [parse_time(f) for f in respfiles]#ANYTIM2TAI(FILE2TIME(respfiles)) # What the flying f*@! is this?
         if not respversion:
-            respversion = respfiles[(respfile_tais == respfile_tais.max())]
+            respversion = respfiles[(respfile_tais == max(respfile_tais))]#.max())]
         if not os.path.isfile(tablefilebase + respversion + '*'):
             print 'File not found: ', tablefilebase + respversion + '*'
             respversion = respfiles[(respfile_tais == respfile_tais.max())]
@@ -651,10 +735,9 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
         tablefile = tablefilebase + 'response_table.txt'
         tabledat = aia_bp_read_response_table(tablefile, silent = silent) # Gonna need to figure out what this does
         sampledate = datetime.datetime.now()
-        if timedepend:
-            if timedepend_date != '1': # There's some IDL keywordy bullsh!t going on here
-                sampledate = timedepend_date
-        sampleutc = sampledate#ANYTIM2UTC(sampledate, /ccsds) # ???
+        if timedepend_date and timedepend_date != True: # There's some IDL keywordy bullsh!t going on here
+            sampledate = timedepend_date
+        sampleutc = parse_time(sampledate)
 
     # UV effective area
     if uv:
@@ -702,7 +785,7 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
                                     timedepend=timedepend, ver_date=ver_date)
         emiss_str = read(efilename) #RESTGEN, file = efilename, str = emiss_str
         
-        #t_short_resp = AIA_BP_AREA2TRESP(short_area, emiss_str, t_full_resp, emversion) # ???
+        t_short_resp = AIA_BP_AREA2TRESP(short_area, emiss_str, t_full_resp, emversion) # ???
         resp = aia_bp_parse_tresp(t_full_resp, chiantifix=ch_str)
 
         return resp
