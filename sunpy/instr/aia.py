@@ -8,71 +8,71 @@ from sunpy.time import parse_time
 from scipy.io.idl import readsav as read
 
 
-def aia_bp_area2tresp(area_struct, emiss_struct, fulltrespstr, emversion):
+def aia_bp_area2tresp(area_struct, emiss_struct, fulltrespstr, emversion=0):
     if len(emiss_struct) == 0:
         emiss_struct = AIA_GET_RESPONSE(emiss=True, full=True)
         emversion = emiss_struct.version
-    endif
-    if N_ELEMENTS(emversion) eq 0 then begin
-        BOX_MESSAGE, ['AIA_BP_AREA2TRESP : emversion not specified', 'Plugging in dummy value of 0']
-        emversion = 0
-    endif
 
     emissinfo = STR_SUBSET(emiss_struct.general, 'abundfile,source,ioneq_logt,ioneq_name,ioneq_ref,wvl_limits,model_name,model_ne,model_pe,model_te,wvl_units,add_protons,version,photoexcitation')
-    areatags = TAG_NAMES(area_struct)
+    areatags = area_struct.keys()
     datetag = area_struct.date
-    gendate = AIA_BP_DATE_STRING(/time)
+    gendate = datetime.today()
 
-    trespstr = CREATE_STRUCT('Name', area_struct.name, $
-        'Date', datetag, $
-        'EffArea_Version', area_struct.version, 'Emiss_Version', emversion, $
-        'Channels', area_struct.channels, $
-        'Logte', emiss_struct.total.logte)
+    trespstr = {'Name': area_struct.name,
+                'Date': datetag,
+                'EffArea_Version': area_struct.version,
+                'Emiss_Version': emversion,
+                'Channels': area_struct.channels,
+                'Logte': emiss_struct.total.logte}
 
-    fulltrespstr = CREATE_STRUCT('Name', area_struct.name, $
-        'Date', datetag, 'LoadDate', gendate, $
-        'EffArea_Version', area_struct.version, 'Emiss_Version', emversion, $
-        'EmissInfo', emissinfo, $
-        'Channels', area_struct.channels, $
-        'Logte', emiss_struct.total.logte, $
-        'Wave', emiss_struct.total.wave)
+    fulltrespstr = {'Name': area_struct.name,
+                    'Date': datetag,
+                    'LoadDate': gendate,
+                    'EffArea_Version': area_struct.version,
+                    'Emiss_Version': emversion,
+                    'EmissInfo': emissinfo,
+                    'Channels': area_struct.channels,
+                    'Logte': emiss_struct.total.logte,
+                    'Wave': emiss_struct.total.wave}
 
-    hasdn = STRPOS(STRUPCASE(area_struct.units), 'DN')
-    if hasdn lt 0 then countunits = 'phot' else countunits = 'DN'
-    for i = 0, N_ELEMENTS(area_struct.channels)-1 do begin
+    if 'DN' not in area_struct.units.upper():
+        countunits = 'phot'
+    else:
+        countunits = 'DN'
+
+    for i in range(len(area_struct.channels)):
         thischan = area_struct.channels[i]
-        thisareastr = area_struct.(WHERE(areatags eq thischan))	
-        thistrespstr = AIA_BP_MAKE_TRESP(emiss_struct.total.wave, emiss_struct.total.logte, $
-            emiss_struct.total.emissivity, thisareastr.wave, thisareastr.ea, $
+        thisareastr = area_struct[thischan]
+        thistrespstr = AIA_BP_MAKE_TRESP(emiss_struct.total.wave, emiss_struct.total.logte,
+            emiss_struct.total.emissivity, thisareastr.wave, thisareastr.ea,
             thischan, thisareastr.platescale, thisfullstr, countunits)
-        if i eq 0 then begin
-            shortchans = CREATE_STRUCT(thischan, thistrespstr)
-            longchans = CREATE_STRUCT(thischan + '_FULL', thisfullstr)
+        if i == 0:
+            shortchans = {thischan: thistrespstr}
+            longchans = {thischan+'_FULL': thisfullstr}
             tresp = thistrespstr.tresp
             twresp = thisfullstr.full_tresp
             units = thisfullstr.units
             full_units = thisfullstr.full_units
-        endif else begin
+        else:
             shortchans = CREATE_STRUCT(shortchans, thischan, thistrespstr)
             longchans = CREATE_STRUCT(longchans, thischan + '_FULL', thisfullstr)
             tresp = [[tresp], [thistrespstr.tresp]]
             twresp = [[[twresp]], [[thisfullstr.full_tresp]]]
-        endelse
-    endfor
 
     notestr = 'Made by AIA_BP_AREA2TRESP'
-    trespstr = CREATE_STRUCT(trespstr, 'all', tresp, 'units', countunits, shortchans, 'Note', notestr)
-    fulltrespstr = CREATE_STRUCT(fulltrespstr, 'tresp', tresp, 'twresp', twresp, $
-        'tunits', units, 'twunits', full_units, shortchans, longchans, 'note', notestr)
+    trespstr.update(shortchans)
+    trespstr.update({'all': tresp, 'units': countunits, 'Note': notestr})
+    fulltrespstr.update(shortchans)
+    fulltrespstr.update(longchans)
+    fulltrespstr.update({'tresp': tresp, 'twresp': twresp, 'tunits': units,
+                        'twunits': full_units, 'note': notestr})
 
-    corrtag = WHERE(areatags eq 'CORRECTIONS', hascorr)
-    if hascorr gt 0 then begin
+    if 'CORRECTIONS' in corrtag:
         corrstr = area_struct.corrections
-        trespstr = CREATE_STRUCT(trespstr, 'Corrections', corrstr)
-        fulltrespstr = CREATE_STRUCT(fulltrespstr, 'corrections', corrstr)
-    endif
+        trespstr['Corrections'] = corrstr
+        fulltrespstr['corrections'] = corrstr
 
-    RETURN, trespstr
+    return trespstr
 
 
 def aia_bp_read_response_table(tablefile, silent=False):
@@ -785,7 +785,7 @@ def aia_get_response(effective_area=False, area=False, temp=False, emiss=False,
                                     timedepend=timedepend, ver_date=ver_date)
         emiss_str = read(efilename) #RESTGEN, file = efilename, str = emiss_str
         
-        t_short_resp = AIA_BP_AREA2TRESP(short_area, emiss_str, t_full_resp, emversion) # ???
+        t_short_resp = aia_bp_area2tresp(short_area, emiss_str, t_full_resp, emversion) # ???
         resp = aia_bp_parse_tresp(t_full_resp, chiantifix=ch_str)
 
         return resp
