@@ -8,13 +8,49 @@ from sunpy.time import parse_time
 from scipy.io.idl import readsav as read
 
 
+def aia_bp_make_tresp(emiss_wave, emiss_logte, emiss, effarea_wave, effarea,
+                      platescale, name='', countunits='DN'):
+    iresponse = INTERPOL(effarea, effarea_wave, emiss_wave)
+
+    lowave = np.where(emiss_wave < min(effarea_wave))
+    if lowave.size > 0:
+        iresponse[lowave] = 0.0
+    hiwave = np.where(emiss_wave > max(effarea_wave))
+    if hiwave.size > 0:
+        iresponse[hiwave] = 0.0
+
+    #goodpoints = np.where(iresponse >= 0)
+    #wavelimits = LIMITS(emiss_wave[goodpoints]) # This variable is apparently not used
+    wavestep = emiss_wave[1] - emiss_wave[0]
+
+    # Generate the simple temperature response function
+    # NO FUCKING IDEA WHAT THE # emiss IS SUPPOSED TO DO. GOOGLE WILL KNOW. tresp = REFORM( (iresponse>0) # emiss)
+    tresp = tresp * platescale * wavestep
+    trespstr = {'name': name, 'units': countunits+' cm^5 s^-1 pix^-1',
+                'logte': emiss_logte, 'tresp': tresp}
+
+    # Generate the more detailed temperature response matrix
+    numtemp = len(emiss_logte)
+    numwave = len(emiss_wave)
+    response_matrix = REBIN(iresponse, numwave, numtemp)
+    full_tresp = (response_matrix>0) * emiss
+    full_tresp = full_tresp * platescale
+    full_trespstr = trespstr.copy()
+    full_trespstr.update({'wave': emiss_wave,
+                          'full_units': countunits + ' cm^5 s^-1 A^-1 pix^-1',
+                          'full_tresp': full_tresp})
+
+    return trespstr, full_trespstr
+
+
 def aia_bp_area2tresp(area_struct, emiss_struct, fulltrespstr, emversion=0):
     if len(emiss_struct) == 0:
         emiss_struct = AIA_GET_RESPONSE(emiss=True, full=True)
         emversion = emiss_struct.version
 
-    emissinfo = STR_SUBSET(emiss_struct.general, 'abundfile,source,ioneq_logt,ioneq_name,ioneq_ref,wvl_limits,model_name,model_ne,model_pe,model_te,wvl_units,add_protons,version,photoexcitation')
-    areatags = area_struct.keys()
+    #emissinfo = STR_SUBSET(emiss_struct.general, 'abundfile,source,ioneq_logt,ioneq_name,ioneq_ref,wvl_limits,model_name,model_ne,model_pe,model_te,wvl_units,add_protons,version,photoexcitation')
+    emissinfo = emiss_struct.general.copy()
+    #areatags = area_struct.keys()
     datetag = area_struct.date
     gendate = datetime.today()
 
@@ -54,8 +90,8 @@ def aia_bp_area2tresp(area_struct, emiss_struct, fulltrespstr, emversion=0):
             units = thisfullstr.units
             full_units = thisfullstr.full_units
         else:
-            shortchans = CREATE_STRUCT(shortchans, thischan, thistrespstr)
-            longchans = CREATE_STRUCT(longchans, thischan + '_FULL', thisfullstr)
+            shortchans.update({thischan: thistrespstr})
+            longchans.update({thischan+'_FULL': thisfullstr})
             tresp = [[tresp], [thistrespstr.tresp]]
             twresp = [[[twresp]], [[thisfullstr.full_tresp]]]
 
