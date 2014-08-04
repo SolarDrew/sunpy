@@ -8,12 +8,63 @@ from sunpy.time import parse_time
 from scipy.io.idl import readsav as read
 
 
+def aia_bp_make_tresp(emiss_wave, emiss_logte, emiss, effarea_wave, effarea, 
+                      platescale, name='', countunits='DN'):
+    iresponse = INTERPOL(effarea, effarea_wave, emiss_wave)
+
+    lowave = np.where(emiss_wave < min(effarea_wave))
+    numlow = len(lowave)
+    if numlow > 0:
+        iresponse[lowave] = 0.0
+    hiwave = np.where(emiss_wave > max(effarea_wave))
+    numhi = len(hiwave)
+    if numhi > 0:
+        iresponse[hiwave] = 0.0
+
+    #goodpoints = np.where(iresponse >= 0)
+    #wavelimits = LIMITS(emiss_wave[goodpoints])
+    wavestep = emiss_wave[1] - emiss_wave[0]
+    
+    # Generate the simple temperature response function
+    #tresp = REFORM( (iresponse>0) # emiss)
+    tresp = tresp * platescale * wavestep
+    trespstr = {'name': name,
+                'units': countunits + ' cm^5 s^-1 pix^-1',
+                'logte': emiss_logte,
+                'tresp': tresp}
+
+    # Generate the more detailed temperature response matrix
+    numtemp = len(emiss_logte)
+    numwave = len(emiss_wave)
+    response_matrix = iresponse.reshape(numwave, numtemp)
+    full_tresp = (response_matrix>0) * emiss
+    full_tresp = full_tresp * platescale
+    full_trespstr = trespstr.update({'wave': emiss_wave,
+        'full_units':  countunits + ' cm^5 s^-1 A^-1 pix^-1',
+        'full_tresp': full_tresp})
+
+    return trespstr, full_trespstr
+
+
 def aia_bp_area2tresp(area_struct, emiss_struct, fulltrespstr, emversion=0):
     if len(emiss_struct) == 0:
         emiss_struct = AIA_GET_RESPONSE(emiss=True, full=True)
         emversion = emiss_struct.version
 
-    emissinfo = STR_SUBSET(emiss_struct.general, 'abundfile,source,ioneq_logt,ioneq_name,ioneq_ref,wvl_limits,model_name,model_ne,model_pe,model_te,wvl_units,add_protons,version,photoexcitation')
+    emissinfo = {'abundfile': emiss_struct.general['abundfile'],
+                 'source': emiss_struct.general['source'],
+                 'ioneq_logt': emiss_struct.general['ioneq_logt'],
+                 'ioneq_name': emiss_struct.general['ioneq_name'],
+                 'ioneq_ref': emiss_struct.general['ioneq_ref'],
+                 'wvl_limits': emiss_struct.general['wvl_limits'],
+                 'model_name': emiss_struct.general['model_name'],
+                 'model_ne': emiss_struct.general['model_ne'],
+                 'model_pe': emiss_struct.general['model_pe'],
+                 'model_te': emiss_struct.general['model_te'],
+                 'wvl_units': emiss_struct.general['wvl_units'],
+                 'add_protons': emiss_struct.general['add_protons'],
+                 'version': emiss_struct.general['version'],
+                 'photoexcitation': emiss_struct.general['photoexcitation']}
     areatags = area_struct.keys()
     datetag = area_struct.date
     gendate = datetime.today()
@@ -120,7 +171,7 @@ def aia_bp_read_response_table(tablefile, silent=False):
     return tablestr
 
 
-def AIA_BP_CORRECTIONS(tabledat, sampleutc, respstr, ver_date='',# effarea=effarea,
+def aia_bp_corrections(tabledat, sampleutc, respstr, ver_date='',# effarea=effarea,
                        tresp=None, uv=False, pstop=False, silent=False):
     """# INPUT PARAMETERS:
     #	tabledat	--	a string array holding data read in from the AIA response table .txt file
@@ -385,7 +436,7 @@ def aia_bp_parse_effarea(oldfullresp, sampleutc=None, resptable=None,
     if len(resptable) > 0:
         newfullresp['corrections'] = corr_str
         smallresp['corrections'] = corr_str
-    np.wherenotes = np.np.where(otags == 'NOTES')#, hasnotes)
+    np.wherenotes = np.where(otags == 'NOTES')#, hasnotes)
     if len(np.wherenotes) > 0:#hasnotes > 0:
         newfullresp['notes'] = oldfullresp['notes']
 
