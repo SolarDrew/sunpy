@@ -26,8 +26,10 @@ from sunpy.net.attr import (
     Attr, AttrWalker, AttrAnd, AttrOr, DummyAttr, ValueAttr
 )
 from sunpy.util.multimethod import MultiMethod
+from sunpy.util.decorators import deprecated
 from sunpy.time import parse_time
 from sunpy.extern.six import iteritems
+from sunpy.extern import six
 
 __all__ = ['Wavelength', 'Time', 'Extent', 'Field', 'Provider', 'Source',
            'Instrument', 'Physobs', 'Pixels', 'Level', 'Resolution',
@@ -142,6 +144,14 @@ class Wavelength(Attr, _Range):
                                                             self.unit)
 
 
+@deprecated("0.8", message="Wave has been renamed Wavelength",
+            alternative="sunpy.net.vso.attrs.wavelength")
+class Wave(Wavelength):
+    """
+    Wavelength search attribute. See `sunpy.net.vso.attrs.Wavelength`.
+    """
+
+
 class Time(Attr, _Range):
     """
     Specify the time range of the query.
@@ -155,7 +165,7 @@ class Time(Attr, _Range):
     end : SunPy Time String
         The end time of the range.
 
-    near: SunPy Time String
+    near : SunPy Time String
         Return a singular record closest in time to this value as possible,
         inside the start and end window. Note: not all providers support this
         functionality.
@@ -223,6 +233,8 @@ class Provider(_VSOSimpleAttr):
     ----------
     value : string
 
+    Notes
+    -----
     More information about each source may be found within in the VSO Registry.
     For a list of sources see
     http://sdac.virtualsolar.org/cgi/show_details?keyword=PROVIDER.
@@ -238,6 +250,8 @@ class Source(_VSOSimpleAttr):
     ----------
     value : string
 
+    Notes
+    -----
     More information about each source may be found within in the VSO Registry.
     User Interface programmers should note that some names may be encoded as
     UTF-8. Please note that 'Source' is used internally by VSO to represent
@@ -249,17 +263,23 @@ class Source(_VSOSimpleAttr):
 
 class Instrument(_VSOSimpleAttr):
     """
-    Specifies the Instruments the VSO can search for.
+    Specifies the Instrument name for the search.
 
     Parameters
     ----------
     value : string
 
-    More information about each instrument may be found within the VSO
-    Registry. For a list of instruments see
+    Notes
+    -----
+    More information about each instrument supported by the VSO may be found
+    within the VSO Registry. For a list of instruments see
     http://sdac.virtualsolar.org/cgi/show_details?keyword=INSTRUMENT.
     """
-    pass
+    def __init__(self, value):
+        if not isinstance(value, six.string_types):
+            raise ValueError("Instrument names must be strings")
+
+        super(Instrument, self).__init__(value)
 
 
 class Detector(_VSOSimpleAttr):
@@ -270,10 +290,14 @@ class Detector(_VSOSimpleAttr):
     ----------
     value : string
 
+    Notes
+    -----
     For a list of values understood by the VSO see
     http://sdac.virtualsolar.org/cgi/show_details?keyword=SOURCE.
 
-    Reference: documentation in SSWIDL routine vso_search.pro.
+    References
+    ----------
+    Documentation in SSWIDL routine vso_search.pro.
     """
     pass
 
@@ -286,6 +310,8 @@ class Physobs(_VSOSimpleAttr):
     ----------
     value : string
 
+    Notes
+    -----
     More information about each instrument may be found within the VSO
     Registry.  For a list of physical observables see
     http://sdac.virtualsolar.org/cgi/show_details?keyword=PHYSOBS.
@@ -302,11 +328,12 @@ class Level(_VSOSimpleAttr):
     ----------
     value : float or string
 
-    The value can be entered in of three ways
-    (1) May be entered as a string or any numeric type for equality matching
-    (2) May be a string of the format '(min) - (max)' for range matching
-    (3) May be a string of the form '(operator) (number)' where operator is
-    one of: lt gt le ge < > <= >=
+        The value can be entered in of three ways:
+
+        #. May be entered as a string or any numeric type for equality matching
+        #. May be a string of the format '(min) - (max)' for range matching
+        #. May be a string of the form '(operator) (number)' where operator is\
+        one of: lt gt le ge < > <= >=
 
     """
     pass
@@ -318,7 +345,9 @@ class Pixels(_VSOSimpleAttr):
     for SDO data)  We hope to change this in the future to support TRACE,
     Hinode and other investigations where this changed between observations.
 
-    Reference: documentation in SSWIDL routine vso_search.pro.
+    References
+    ----------
+    Documentation in SSWIDL routine vso_search.pro.
     """
     pass
 
@@ -331,19 +360,22 @@ class Resolution(_VSOSimpleAttr):
     ----------
     value : float or string
 
-    The value can be entered in of three ways
-    (1) May be entered as a string or any numeric type for equality matching
-    (2) May be a string of the format '(min) - (max)' for range matching
-    (3) May be a string of the form '(operator) (number)' where operator is
-    one of: lt gt le ge < > <= >=
+        The value can be entered in of three ways:
 
-    This attribute is currently implemented for SDO/AIA and HMI only.
-    The "resolution" is a function of the highest level of data available.
-    If the CCD is 2048x2048, but is binned to 512x512 before downlink,
-    the 512x512 product is designated as '1'.  If a 2048x2048 and 512x512
-    product are both available, the 512x512 product is designated '0.25'.
+        #. May be entered as a string or any numeric type for equality matching
+        #. May be a string of the format '(min) - (max)' for range matching
+        #. May be a string of the form '(operator) (number)' where operator is\
+        one of: lt gt le ge < > <= >=
 
-    Reference: documentation in SSWIDL routine vso_search.pro.
+        This attribute is currently implemented for SDO/AIA and HMI only.
+        The "resolution" is a function of the highest level of data available.
+        If the CCD is 2048x2048, but is binned to 512x512 before downlink,
+        the 512x512 product is designated as '1'.  If a 2048x2048 and 512x512
+        product are both available, the 512x512 product is designated '0.25'.
+
+    References
+    ----------
+    Documentation in SSWIDL routine vso_search.pro.
     """
     pass
 
@@ -356,15 +388,19 @@ class PScale(_VSOSimpleAttr):
     ----------
     value : float or string
 
-    The value can be entered in of three ways
-    (1) May be entered as a string or any numeric type for equality matching
-    (2) May be a string of the format '(min) - (max)' for range matching
-    (3) May be a string of the form '(operator) (number)' where operator is
-    one of: lt gt le ge < > <= >=
+        The value can be entered in of three ways:
 
-    Currently only implemented for SDO, which is 0.6 arcsec per pixel at full
-    resolution for AIA.  Reference: documentation in SSWIDL routine
-    vso_search.pro.
+        #. May be entered as a string or any numeric type for equality matching
+        #. May be a string of the format '(min) - (max)' for range matching
+        #. May be a string of the form '(operator) (number)' where operator is\
+        one of: lt gt le ge < > <= >=
+
+        Currently only implemented for SDO, which is 0.6 arcsec per pixel at full
+        resolution for AIA.
+
+    References
+    ----------
+    Documentation in SSWIDL routine vso_search.pro.
     """
     pass
 
@@ -393,15 +429,18 @@ class Quicklook(_VSOSimpleAttr):
     value : boolean
         Set to True to retrieve quicklook data if available.
 
-    Quicklook items are assumed to be generated with a focus on speed rather
-    than scientific accuracy.  They are useful for instrument planning and
-    space weather but should not be used for science publication.
-    This concept is sometimes called 'browse' or 'near real time' (nrt)
-    Quicklook products are *not* searched by default.   Reference:
-    documentation in SSWIDL routine vso_search.pro.
+        Quicklook items are assumed to be generated with a focus on speed rather
+        than scientific accuracy.  They are useful for instrument planning and
+        space weather but should not be used for science publication.
+        This concept is sometimes called 'browse' or 'near real time' (nrt)
+        Quicklook products are *not* searched by default.
+
+    References
+    ----------
+    Documentation in SSWIDL routine vso_search.pro.
     """
-    def __init__(self,value):
-        super(Quicklook,self).__init__(value)
+    def __init__(self, value):
+        super(Quicklook, self).__init__(value)
         if self.value:
             self.value = 1
         else:

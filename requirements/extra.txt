@@ -1,18 +1,11 @@
-# Extra dependencies required for development and tests
+# Optional dependencies needed for extra functionality within SunPy.
 
 -r base.txt
 
-# To execute the tests, install:
-hypothesis
-mock
-pytest
-pytest-cov
-pytest-mock
-
-# Optional dependencies for extra functionality
 sqlalchemy
 scikit-image
 glymur
 suds-jurko
 beautifulsoup4
 requests
+python-dateutil

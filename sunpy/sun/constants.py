@@ -4,70 +4,20 @@ Fundamental Solar Physical Constants
 These constants are taken from various sources. The structure of this module is heavily
 based on if not directly copied from the SciPy constants module but contains Solar
 Physical constants.
-
-Object
-------
-    constants : dict
-        A dictionary containing physical constants. Keys are the names
-        of physical constants, values are tuples (value, units, uncertainty). The dictionary
-        contains the following solar physical constants:
-
-    average density:
-         The average density of the Sun.
-    average_angular_size:
-        The average angular size of the Sun as seen from Earth in arcseconds.
-    effective temperature:
-        The effective black-body temperature of the Sun in Kelvin.
-    oblateness:
-        The ellipticity of the Sun.
-    escape velocity:
-        The velocity which an object needs to escape from the gravitational pull of the Sun.
-    luminosity:
-        The luminosity of the Sun.
-    mass:
-        The mass of the Sun.
-    mass conversion rate:
-        The rate at which the Sun converts mass to energy.
-    mean energy production:
-        The mean rate at which the Sun produces energy.
-    mean intensity:
-        The mean intensity of the Sun.
-    metallicity:
-        The metallicity of the Sun.
-    radius:
-        The radius of the Sun at the equator.
-    solar flux unit:
-        The definition of a solar flux unit.
-    sunspot cycle:
-        The average duration of the solar activity cycle.
-    surface area:
-        The surface area of the Sun.
-    surface gravity:
-        The gravitational acceleration at the surface of the Sun as measured at the equator.
-    visual magnitude:
-       A measure of the Sun's brightness as seen by an observer on Earth without the
-       presence of the atmosphere.
-    volume:
-        The volume of the Sun.
-
-Attributes
-----------
-A number of variables from constants are made available for convenience as
-attributes.
-
-Websites
---------
-| http://books.google.com/books?id=4SWENr1tIJ0C&printsec=frontcover&source=gbs_ge_summary_r&cad=0#v=onepage&q=sfu&f=false
-
 """
 
 from __future__ import absolute_import, division, print_function
 from astropy.table import Table
-from sunpy.extern.six import  iteritems
+from sunpy.extern.six import iteritems
 
-from sunpy.sun import _constants as _con # pylint: disable=E0611
+from sunpy.sun import _constants as _con  # pylint: disable=E0611
 
-__all__ = ['get', 'find', 'print_all']
+__all__ = [
+    'get', 'find', 'print_all', 'spectral_classification', 'au', 'mass', 'equatorial_radius',
+    'volume', 'surface_area', 'average_density', 'equatorial_surface_gravity',
+    'effective_temperature', 'luminosity', 'mass_conversion_rate', 'escape_velocity', 'sfu',
+    'average_angular_size'
+]
 
 constants = _con.physical_constants
 
@@ -94,7 +44,7 @@ def get(key):
     --------
     >>> from sunpy.sun import constants
     >>> constants.get('mass')
-    <Constant name=u'Solar mass' value=1.9891e+30 uncertainty=5e+25 unit='kg' reference=u"Allen's Astrophysical Quantities 4th Ed.">
+    <<class 'astropy.constants.iau2012.IAU2012'> name='Solar mass' value=1.9891e+30 uncertainty=5e+25 unit='kg' reference="Allen's Astrophysical Quantities 4th Ed.">
     """
     return constants[key]
 
@@ -143,8 +93,10 @@ def print_all(key=None):
     """
     data_rows = []
     for key, this_constant in iteritems(constants):
-        data_rows.append([key, this_constant.name, this_constant.value, this_constant.uncertainty,
-                          str(this_constant.unit), this_constant.reference])
+        data_rows.append([
+            key, this_constant.name, this_constant.value, this_constant.uncertainty,
+            str(this_constant.unit), this_constant.reference
+        ])
 
     t = Table(rows=data_rows, names=('key', 'name', 'value', 'uncertainty', 'unit', 'Reference'))
     return t

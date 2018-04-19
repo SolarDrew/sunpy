@@ -3,7 +3,7 @@ This module provides routines for the coalignment of images and mapcubes.
 
 Currently this module provides image coalignment by template matching.
 Which is partially inspired by the SSWIDL routine
-`tr_get_disp.pro <http://hesperia.gsfc.nasa.gov/ssw/trace/idl/util/routines/tr_get_disp.pro>`_.
+`tr_get_disp.pro <http://www.heliodocs.com/php/xdoc_print.php?file=$SSW/trace/idl/util/tr_get_disp.pro>`_.
 
 In this implementation, the template matching is handled via the scikit-image
 routine :func:`skimage.feature.match_template`.
@@ -498,8 +498,8 @@ def calculate_match_template_shift(mc, template=None, layer_index=0,
     for i, m in enumerate(mc.maps):
         # Calculate the shifts required in physical units, which are
         # presumed to be arcseconds.
-        xshift_arcseconds[i] = xshift_keep[i] * m.scale.x
-        yshift_arcseconds[i] = yshift_keep[i] * m.scale.y
+        xshift_arcseconds[i] = xshift_keep[i] * m.scale[0]
+        yshift_arcseconds[i] = yshift_keep[i] * m.scale[1]
 
     return {"x": xshift_arcseconds, "y": yshift_arcseconds}
 
@@ -596,8 +596,8 @@ def mapcube_coalign_by_match_template(mc, template=None, layer_index=0,
 
     # Calculate the pixel shifts
     for i, m in enumerate(mc):
-        xshift_keep[i] = (xshift_arcseconds[i] / m.scale.x)
-        yshift_keep[i] = (yshift_arcseconds[i] / m.scale.y)
+        xshift_keep[i] = (xshift_arcseconds[i] / m.scale[0])
+        yshift_keep[i] = (yshift_arcseconds[i] / m.scale[1])
 
     # Apply the shifts and return the coaligned mapcube
     return apply_shifts(mc, -yshift_keep, -xshift_keep, clip=clip, **kwargs)

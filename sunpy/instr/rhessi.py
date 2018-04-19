@@ -8,23 +8,27 @@
 from __future__ import absolute_import, print_function
 
 import csv
+import posixpath
+import re
 import socket
-from datetime import datetime
-from datetime import timedelta
+import warnings
+from datetime import datetime, timedelta
 
 import numpy as np
+from dateutil.relativedelta import relativedelta
 
-from astropy.io import fits
 from astropy import units as u
 
 from sunpy.time import TimeRange, parse_time
 from sunpy.sun.sun import solar_semidiameter_angular_size
-from sunpy.sun.sun import sunearth_distance
+from sunpy.coordinates import get_sunearth_distance
 import sunpy.map
+import sunpy.io
 
 from sunpy.extern.six.moves import urllib
-from sunpy.extern.six.moves.urllib.request import urlopen
+from sunpy.extern.six.moves.urllib.request import urlopen, urlretrieve
 from sunpy.extern.six.moves.urllib.error import URLError
+
 
 __all__ = ['get_obssumm_dbase_file', 'parse_obssumm_dbase_file',
            'get_obssum_filename', 'get_obssumm_file', 'parse_obssumm_file',
@@ -36,7 +40,7 @@ grid_pitch = (4.52467, 7.85160, 13.5751, 23.5542, 40.7241, 70.5309, 122.164,
 grid_orientation = (3.53547, 2.75007, 3.53569, 2.74962, 3.92596, 2.35647,
                     0.786083, 0.00140674, 1.57147)
 
-data_servers = ('http://hesperia.gsfc.nasa.gov/hessidata/',
+data_servers = ('https://hesperia.gsfc.nasa.gov/hessidata/',
                 'http://hessi.ssl.berkeley.edu/hessidata/',
                 'http://soleil.i4ds.ch/hessidata/')
 
@@ -48,14 +52,14 @@ def get_base_url():
     """
     Find the first mirror which is online
     """
-
     for server in data_servers:
         try:
             urlopen(server, timeout=1)
+            return server
         except (URLError, socket.timeout):
             pass
-        else:
-            return server
+
+    raise IOError('Unable to find an online HESSI server from {0}'.format(data_servers))
 
 
 def get_obssumm_dbase_file(time_range):
@@ -78,31 +82,27 @@ def get_obssumm_dbase_file(time_range):
     Examples
     --------
     >>> import sunpy.instr.rhessi as rhessi
-    >>> rhessi.get_obssumm_dbase_file(('2011/04/04', '2011/04/05'))   # doctest: +SKIP
+    >>> fname, hdrs = rhessi.get_obssumm_dbase_file(('2011/04/04', '2011/04/05'))   # doctest: +REMOTE_DATA
 
     References
     ----------
-    | http://hesperia.gsfc.nasa.gov/ssw/hessi/doc/guides/hessi_data_access.htm#Observing Summary Data
+    | https://hesperia.gsfc.nasa.gov/ssw/hessi/doc/guides/hessi_data_access.htm#Observing%20Summary%20Data
 
     .. note::
         This API is currently limited to providing data from whole days only.
 
     """
-
-    #    http://hesperia.gsfc.nasa.gov/hessidata/dbase/hsi_obssumm_filedb_200311.txt
-
     _time_range = TimeRange(time_range)
-    data_location = 'dbase/'
 
     if _time_range.start < parse_time("2002/02/01"):
         raise ValueError("RHESSI summary files are not available for before 2002-02-01")
 
-    url_root = get_base_url() + data_location
-    url = url_root + _time_range.start.strftime("hsi_obssumm_filedb_%Y%m.txt")
+    _check_one_day(_time_range)
 
-    f = urllib.request.urlretrieve(url)
+    url = posixpath.join(get_base_url(), 'dbase',
+                         _time_range.start.strftime("hsi_obssumm_filedb_%Y%m.txt"))
 
-    return f
+    return urlretrieve(url)
 
 
 def parse_obssumm_dbase_file(filename):
@@ -124,23 +124,28 @@ def parse_obssumm_dbase_file(filename):
     Examples
     --------
     >>> import sunpy.instr.rhessi as rhessi
-    >>> f = rhessi.get_obssumm_dbase_file(('2011/04/04', '2011/04/05'))   # doctest: +SKIP
-    >>> rhessi.parse_obssumm_dbase_file(f[0])   # doctest: +SKIP
+    >>> fname, _ = rhessi.get_obssumm_dbase_file(('2011/04/04', '2011/04/05'))   # doctest: +REMOTE_DATA
+    >>> file_names = rhessi.parse_obssumm_dbase_file(fname)   # doctest: +REMOTE_DATA
+    >>> file_names['filename'][::5]   # doctest: +REMOTE_DATA
+    ['hsi_obssumm_20110401_043.fit', 'hsi_obssumm_20110406_041.fit', 'hsi_obssumm_20110411_024.fit', 'hsi_obssumm_20110416_016.fit', 'hsi_obssumm_20110421_025.fit', 'hsi_obssumm_20110426_022.fit']
 
     References
     ----------
-    | http://hesperia.gsfc.nasa.gov/ssw/hessi/doc/guides/hessi_data_access.htm#Observing Summary Data
+    | https://hesperia.gsfc.nasa.gov/ssw/hessi/doc/guides/hessi_data_access.htm#Observing%20Summary%20Data
 
     .. note::
         This API is currently limited to providing data from whole days only.
 
     """
-    with open(filename, "rt") as fd:
+    # An example dbase file can be found at:
+    # https://hesperia.gsfc.nasa.gov/hessidata/dbase/hsi_obssumm_filedb_200311.txt
+
+    with open(filename) as fd:
         reader = csv.reader(fd, delimiter=' ', skipinitialspace=True)
-        headerline = next(reader)
-        headerline = next(reader)
-        headerline = next(reader)
-        headerline = next(reader)
+        _ = next(reader)  # skip 'HESSI Filedb File:' row
+        _ = next(reader)  # skip 'Created: ...' row
+        _ = next(reader)  # skip 'Number of Files: ...' row
+        column_names = next(reader)  # ['Filename', 'Orb_st', 'Orb_end',...]
 
         obssumm_filename = []
         orbit_start = []
@@ -154,19 +159,19 @@ def parse_obssumm_dbase_file(filename):
             obssumm_filename.append(row[0])
             orbit_start.append(int(row[1]))
             orbit_end.append(int(row[2]))
-            start_time.append(datetime.strptime(row[3], '%d-%b-%y'))
-            end_time.append(datetime.strptime(row[5], '%d-%b-%y'))
+            start_time.append(datetime.strptime(row[3], '%d-%b-%y'))  # skip time
+            end_time.append(datetime.strptime(row[5], '%d-%b-%y'))  # skip time
             status_flag.append(int(row[7]))
             number_of_packets.append(int(row[8]))
 
         return {
-            headerline[0].lower(): obssumm_filename,
-            headerline[1].lower(): orbit_start,
-            headerline[2].lower(): orbit_end,
-            headerline[3].lower(): start_time,
-            headerline[4].lower(): end_time,
-            headerline[5].lower(): status_flag,
-            headerline[6].lower(): number_of_packets
+            column_names[0].lower(): obssumm_filename,
+            column_names[1].lower(): orbit_start,
+            column_names[2].lower(): orbit_end,
+            column_names[3].lower(): start_time,
+            column_names[4].lower(): end_time,
+            column_names[5].lower(): status_flag,
+            column_names[6].lower(): number_of_packets
         }
 
 
@@ -189,24 +194,34 @@ def get_obssum_filename(time_range):
     Examples
     --------
     >>> import sunpy.instr.rhessi as rhessi
-    >>> rhessi.get_obssum_filename(('2011/04/04', '2011/04/05'))   # doctest: +SKIP
+    >>> rhessi.get_obssum_filename(('2011/04/04', '2011/04/05'))   # doctest: +REMOTE_DATA
+    ['https://hesperia.gsfc.nasa.gov/hessidata/metadata/catalog/hsi_obssumm_20110404_042.fits']
 
     .. note::
         This API is currently limited to providing data from whole days only.
 
     """
+    time_range = TimeRange(time_range)
+
+    delta = relativedelta(time_range.end, time_range.start)
+    if delta.years > 0 or delta.months > 0:
+        raise ValueError("Rhessi search results can not be found for a"
+                         " time range crossing multiple months.")
+
+
     # need to download and inspect the dbase file to determine the filename
     # for the observing summary data
-    f = get_obssumm_dbase_file(time_range)
-    data_location = 'metadata/catalog/'
 
-    result = parse_obssumm_dbase_file(f[0])
-    _time_range = TimeRange(time_range)
+    dbase_file_name, _ = get_obssumm_dbase_file(time_range)
+    dbase_dat = parse_obssumm_dbase_file(dbase_file_name)
 
-    index_number_start = _time_range.start.day - 1
-    index_number_end = _time_range.end.day - 1
+    index_number_start = time_range.start.day - 1
+    # If end is 0 set it to 1 so we always have at least one record.
+    index_number_end = time_range.end.day - 1 or index_number_start + 1
 
-    return [get_base_url() + data_location + filename + 's' for filename in result.get('filename')[index_number_start:index_number_end]]
+    filenames = dbase_dat.get('filename')[index_number_start:index_number_end]
+    return [posixpath.join(get_base_url(), 'metadata', 'catalog', filename + 's')
+            for filename in filenames]
 
 
 def get_obssumm_file(time_range):
@@ -229,24 +244,18 @@ def get_obssumm_file(time_range):
     Examples
     --------
     >>> import sunpy.instr.rhessi as rhessi
-    >>> rhessi.get_obssumm_file(('2011/04/04', '2011/04/05'))   # doctest: +SKIP
+    >>> fname, hdrs = rhessi.get_obssumm_file(('2011/04/04', '2011/04/05'))   # doctest: +REMOTE_DATA
 
     .. note::
         This API is currently limited to providing data from whole days only.
 
     """
+    _check_one_day(TimeRange(time_range))
 
-    time_range = TimeRange(time_range)
-    data_location = 'metadata/catalog/'
+    filenames = get_obssum_filename(time_range)
 
-    url_root = get_base_url() + data_location
-
-    url = url_root + get_obssum_filename(time_range)
-
-    print('Downloading file: ' + url)
-    f = urllib.request.urlretrieve(url)
-
-    return f
+    # As we only support providing data from one whole day, only get the first file
+    return urlretrieve(filenames[0])
 
 
 def parse_obssumm_file(filename):
@@ -262,27 +271,23 @@ def parse_obssumm_file(filename):
 
     Returns
     -------
-    out : `dict`
-        Returns a dictionary.
+    value : `tuple`
+        Return a `tuple` (fits_header, data). Where fits_header is of type
+        `~astropy.io.fits.header.Header` and data of type `dict`
 
     Examples
     --------
     >>> import sunpy.instr.rhessi as rhessi
-    >>> f = rhessi.get_obssumm_file(('2011/04/04', '2011/04/05'))   # doctest: +SKIP
-    >>> data = rhessi.parse_obssumm_file(f[0])   # doctest: +SKIP
+    >>> fname, _ = rhessi.get_obssumm_file(('2011/04/04', '2011/04/05'))   # doctest: +REMOTE_DATA
+    >>> data = rhessi.parse_obssumm_file(fname)   # doctest: +REMOTE_DATA
 
     """
 
-    afits = fits.open(filename)
-    header = afits[0].header
+    afits = sunpy.io.read_file(filename)
+    fits_header = afits[0].header
 
     reference_time_ut = parse_time(afits[5].data.field('UT_REF')[0])
     time_interval_sec = afits[5].data.field('TIME_INTV')[0]
-    # label_unit = fits[5].data.field('DIM1_UNIT')[0]
-    # labels = fits[5].data.field('DIM1_IDS')
-    labels = ['3 - 6 keV', '6 - 12 keV', '12 - 25 keV', '25 - 50 keV',
-              '50 - 100 keV', '100 - 300 keV', '300 - 800 keV', '800 - 7000 keV',
-              '7000 - 20000 keV']
 
     # The data stored in the FITS file are "compressed" countrates stored as
     # one byte
@@ -291,12 +296,12 @@ def parse_obssumm_file(filename):
     countrate = uncompress_countrate(compressed_countrate)
     dim = np.array(countrate[:, 0]).size
 
-    time_array = [reference_time_ut + timedelta(0,time_interval_sec * a) for a in np.arange(dim)]
+    time_array = [reference_time_ut + timedelta(0, time_interval_sec * a) for a in np.arange(dim)]
 
-    # TODO generate the labels for the dict automatically from labels
-    data = {'time': time_array, 'data': countrate, 'labels': labels}
+    labels = _build_energy_bands(label=afits[5].data.field('DIM1_UNIT')[0],
+                                 bands=afits[5].data.field('DIM1_IDS')[0])
 
-    return header, data
+    return fits_header, dict(time=time_array, data=countrate, labels=labels)
 
 
 def parse_obssumm_hdulist(hdulist):
@@ -350,15 +355,23 @@ def uncompress_countrate(compressed_countrate):
 
     References
     ----------
-    Hsi_obs_summ_decompress.pro `<http://hesperia.gsfc.nasa.gov/ssw/hessi/idl/qlook_archive/hsi_obs_summ_decompress.pro>`_
+    Hsi_obs_summ_decompress.pro `<https://hesperia.gsfc.nasa.gov/ssw/hessi/idl/qlook_archive/hsi_obs_summ_decompress.pro>`_
     """
+
+    # Ensure uncompressed counts are between 0 and 255
+    if (compressed_countrate.min() < 0) or (compressed_countrate.max() > 255):
+        raise ValueError(
+            'Exepected uncompressed counts {} to in range 0-255'.format(compressed_countrate))
+
+    # TODO Must be a better way than creating entire lookup table on each call
     ll = np.arange(0, 16, 1)
     lkup = np.zeros(256, dtype='int')
-    sum = 0
+    _sum = 0
     for i in range(0, 16):
-        lkup[16 * i:16 * (i + 1)] = ll * 2 ** i + sum
+        lkup[16 * i:16 * (i + 1)] = ll * 2 ** i + _sum
         if i < 15:
-            sum = lkup[16 * (i + 1) - 1] + 2 ** i
+            _sum = lkup[16 * (i + 1) - 1] + 2 ** i
+
     return lkup[compressed_countrate]
 
 
@@ -375,7 +388,7 @@ def hsi_linecolors():
 
     References
     ----------
-    hsi_linecolors.pro `<http://hesperia.gsfc.nasa.gov/ssw/hessi/idl/gen/hsi_linecolors.pro`_
+    hsi_linecolors.pro `<https://hesperia.gsfc.nasa.gov/ssw/hessi/idl/gen/hsi_linecolors.pro>`_
     """
     return ('black', 'magenta', 'lime', 'cyan', 'y', 'red', 'blue', 'orange',
             'olive')
@@ -412,7 +425,7 @@ def _backproject(calibrated_event_list, detector=8, pixel_size=(1., 1.),
     # info_parameters = fits[2]
     # detector_efficiency = info_parameters.data.field('cbe_det_eff$$REL')
 
-    afits = fits.open(calibrated_event_list)
+    afits = sunpy.io.read_file(calibrated_event_list)
 
     fits_detector_index = detector + 2
     detector_index = detector - 1
@@ -425,20 +438,22 @@ def _backproject(calibrated_event_list, detector=8, pixel_size=(1., 1.),
     grid_transmission = afits[fits_detector_index].data.field('gridtran')
     count = afits[fits_detector_index].data.field('count')
 
-    tempa = (np.arange(image_dim[0]*image_dim[1]) % image_dim[0]) - (image_dim[0]-1)/2.
+    tempa = (np.arange(image_dim[0] * image_dim[1]) % image_dim[0]) - (image_dim[0]-1)/2.
     tempb = tempa.reshape(image_dim[0], image_dim[1]).transpose().reshape(image_dim[0]*image_dim[1])
 
     pixel = np.array(list(zip(tempa, tempb)))*pixel_size[0]
-    phase_pixel = (2*np.pi/harm_ang_pitch)*(np.outer(pixel[:, 0], np.cos(this_roll_angle - grid_angle)) -
-                                            np.outer(pixel[:, 1], np.sin(this_roll_angle - grid_angle))) + phase_map_center
+    phase_pixel = (2 * np.pi/harm_ang_pitch) *\
+                  (np.outer(pixel[:, 0], np.cos(this_roll_angle - grid_angle)) -
+                   np.outer(pixel[:, 1], np.sin(this_roll_angle - grid_angle))) + phase_map_center
     phase_modulation = np.cos(phase_pixel)
     gridmod = modamp * grid_transmission
-    probability_of_transmission = gridmod*phase_modulation + grid_transmission
+    probability_of_transmission = gridmod * phase_modulation + grid_transmission
     bproj_image = np.inner(probability_of_transmission, count).reshape(image_dim)
 
     return bproj_image
 
 
+@u.quantity_input(pixel_size=u.arcsec, image_dim=u.pix)
 def backprojection(calibrated_event_list, pixel_size=(1., 1.) * u.arcsec,
                    image_dim=(64, 64) * u.pix):
     """
@@ -463,60 +478,96 @@ def backprojection(calibrated_event_list, pixel_size=(1., 1.) * u.arcsec,
 
     Examples
     --------
+    This example is broken.
     >>> import sunpy.data
-    >>> import sunpy.data.sample
+    >>> import sunpy.data.sample  # doctest: +SKIP
     >>> import sunpy.instr.rhessi as rhessi
-    >>> sunpy.data.download_sample_data(overwrite=False)   # doctest: +SKIP
-    >>> map = rhessi.backprojection(sunpy.data.sample.RHESSI_EVENT_LIST)   # doctest: +SKIP
+    >>> map = rhessi.backprojection(sunpy.data.sample.RHESSI_IMAGE)  # doctest: +SKIP
     >>> map.peek()   # doctest: +SKIP
-
     """
-    if not isinstance(pixel_size, u.Quantity):
-        raise ValueError("Must be astropy Quantity in arcseconds")
-    try:
-        pixel_size = pixel_size.to(u.arcsec)
-    except:
-        raise ValueError("'{0}' is not a valid pixel_size unit".format(pixel_size.unit))
-    if not (isinstance(image_dim, u.Quantity) and image_dim.unit == 'pix'):
-        raise ValueError("Must be astropy Quantity in pixels")
+    pixel_size = pixel_size.to(u.arcsec)
+    image_dim = np.array(image_dim.to(u.pix).value, dtype=int)
 
-    afits = fits.open(calibrated_event_list)
+    afits = sunpy.io.read_file(calibrated_event_list)
     info_parameters = afits[2]
     xyoffset = info_parameters.data.field('USED_XYOFFSET')[0]
     time_range = TimeRange(info_parameters.data.field('ABSOLUTE_TIME_RANGE')[0])
 
-    image = np.zeros(image_dim.value)
+    image = np.zeros(image_dim)
 
     # find out what detectors were used
     det_index_mask = afits[1].data.field('det_index_mask')[0]
     detector_list = (np.arange(9)+1) * np.array(det_index_mask)
     for detector in detector_list:
         if detector > 0:
-            image = image + _backproject(calibrated_event_list, detector=detector, pixel_size=pixel_size.value,
-                                         image_dim=image_dim.value)
+            image = image + _backproject(calibrated_event_list, detector=detector,
+                                         pixel_size=pixel_size.value, image_dim=image_dim)
 
     dict_header = {
-        "DATE-OBS": time_range.center().strftime("%Y-%m-%d %H:%M:%S"),
+        "DATE-OBS": time_range.center.strftime("%Y-%m-%d %H:%M:%S"),
         "CDELT1": pixel_size[0],
         "NAXIS1": image_dim[0],
         "CRVAL1": xyoffset[0],
-        "CRPIX1": image_dim[0].value/2 + 0.5,
+        "CRPIX1": image_dim[0]/2 + 0.5,
         "CUNIT1": "arcsec",
         "CTYPE1": "HPLN-TAN",
         "CDELT2": pixel_size[1],
         "NAXIS2": image_dim[1],
         "CRVAL2": xyoffset[1],
-        "CRPIX2": image_dim[0].value/2 + 0.5,
+        "CRPIX2": image_dim[0]/2 + 0.5,
         "CUNIT2": "arcsec",
         "CTYPE2": "HPLT-TAN",
         "HGLT_OBS": 0,
         "HGLN_OBS": 0,
-        "RSUN_OBS": solar_semidiameter_angular_size(time_range.center()).value,
+        "RSUN_OBS": solar_semidiameter_angular_size(time_range.center).value,
         "RSUN_REF": sunpy.sun.constants.radius.value,
-        "DSUN_OBS": sunearth_distance(time_range.center()) * sunpy.sun.constants.au.value
+        "DSUN_OBS": get_sunearth_distance(time_range.center).value * sunpy.sun.constants.au.value
     }
 
-    header = sunpy.map.MetaDict(dict_header)
-    result_map = sunpy.map.Map(image, header)
+    result_map = sunpy.map.Map(image, dict_header)
 
     return result_map
+
+
+def _build_energy_bands(label, bands):
+    """
+    Parameters
+    ----------
+    label: `str`
+    bands: `list` of `str`
+    Returns
+    -------
+    bands_with_units: `list` of `str`
+        Each `str` item is an energy band and its unit
+    Example
+    -------
+    >>> from sunpy.instr.rhessi import _build_energy_bands
+    >>> _build_energy_bands('Energy bands (keV)', ['3 - 6', '6 - 12', '12 - 25'])
+    ['3 - 6 keV', '6 - 12 keV', '12 - 25 keV']
+    """
+
+    unit_pattern = re.compile(r'^.+\((?P<UNIT>\w+)\)$')
+
+    matched = unit_pattern.match(label)
+
+    if matched is None:
+        raise ValueError("Unable to find energy unit in '{0}' "
+                         "using REGEX '{1}'".format(label, unit_pattern.pattern))
+
+    unit = matched.group('UNIT').strip()
+
+    return ['{energy_band} {unit}'.format(energy_band=band, unit=unit) for band in bands]
+
+
+def _check_one_day(time_range):
+    """
+    Currently only support TimeRanges of a maximum of one day.
+    Issue a visible warning if `time_range` is greater than this
+    Parameters
+    ----------
+    time_range : `sunpy.time.TimeRange`
+    """
+    if time_range.days > 1 * u.day:
+        warnings.warn('Currently only support providing data from one whole day. Only data for {0} '
+                      'will be returned'.format(time_range.start.strftime("%Y-%m-%d")), UserWarning,
+                      stacklevel=2)

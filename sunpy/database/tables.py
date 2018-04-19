@@ -9,18 +9,20 @@ from datetime import datetime
 import fnmatch
 import os
 
-from astropy.units import Unit, nm, equivalencies
+from astropy.units import Unit, nm, equivalencies, quantity
 import astropy.table
 from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean,\
     Table, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
+import numpy as np
 
-from sunpy.time import parse_time
+from sunpy.time import parse_time, TimeRange
 from sunpy.io import fits, file_tools as sunpy_filetools
 from sunpy.util import print_table
 from sunpy.extern.six.moves import map
 from sunpy.extern import six
+import sunpy.net
 
 from sunpy import config
 
@@ -36,11 +38,10 @@ __all__ = [
 Base = declarative_base()
 
 # required for the many-to-many relation on tags:entries
-association_table = Table(
-                          'association', Base.metadata,
+association_table = Table('association', Base.metadata,
                           Column('tag_name', String, ForeignKey('tags.name')),
                           Column('entry_id', Integer, ForeignKey('data.id'))
-                         )
+                          )
 
 
 class WaveunitNotFoundError(Exception):
@@ -48,6 +49,7 @@ class WaveunitNotFoundError(Exception):
     header or in a VSO query result block.
 
     """
+
     def __init__(self, obj):
         self.obj = obj
 
@@ -61,6 +63,7 @@ class WaveunitNotConvertibleError(Exception):
     astropy.units.Unit instance.
 
     """
+
     def __init__(self, waveunit):
         self.waveunit = waveunit
 
@@ -281,27 +284,27 @@ class DatabaseEntry(Base):
         --------
         >>> from sunpy.net import vso
         >>> from sunpy.database.tables import DatabaseEntry
-        >>> client = vso.VSOClient()
-        >>> qr = client.query(
+        >>> client = vso.VSOClient()  # doctest: +REMOTE_DATA
+        >>> qr = client.search(
         ...     vso.attrs.Time('2001/1/1', '2001/1/2'),
-        ...     vso.attrs.Instrument('eit'))
-        >>> entry = DatabaseEntry._from_query_result_block(qr[0])
-        >>> entry.source
-        'SOHO'
-        >>> entry.provider
-        'SDAC'
-        >>> entry.physobs
+        ...     vso.attrs.Instrument('eit'))  # doctest: +REMOTE_DATA
+        >>> entry = DatabaseEntry._from_query_result_block(qr[0])  # doctest: +REMOTE_DATA
+        >>> entry.source  # doctest: +REMOTE_DATA
+        SOHO
+        >>> entry.provider  # doctest: +REMOTE_DATA
+        SDAC
+        >>> entry.physobs  # doctest: +REMOTE_DATA
         'intensity'
-        >>> entry.fileid
-        '/archive/soho/private/data/processed/eit/lz/2001/01/efz20010101.010014'
-        >>> entry.observation_time_start, entry.observation_time_end
-        (datetime.datetime(2001, 1, 1, 1, 0, 14), datetime.datetime(2001, 1, 1, 1, 0, 21))
-        >>> entry.instrument
-        'EIT'
-        >>> entry.size
+        >>> entry.fileid  # doctest: +REMOTE_DATA
+        /archive/soho/private/data/processed/eit/lz/2001/01/efz20010101.000042
+        >>> entry.observation_time_start, entry.observation_time_end  # doctest: +REMOTE_DATA
+        (datetime.datetime(2001, 1, 1, 0, 0, 42), datetime.datetime(2001, 1, 1, 0, 0, 54))
+        >>> entry.instrument  # doctest: +REMOTE_DATA
+        EIT
+        >>> entry.size  # doctest: +REMOTE_DATA
         2059.0
-        >>> entry.wavemin, entry.wavemax
-        (17.1, 17.1)
+        >>> entry.wavemin, entry.wavemax  # doctest: +REMOTE_DATA
+        (19.5, 19.5)
 
         """
         time_start = timestamp2datetime('%Y%m%d%H%M%S', qr_block.time.start)
@@ -315,7 +318,7 @@ class DatabaseEntry(Base):
                 unit = Unit(default_waveunit)
         else:
             # some query response blocks store the unit "kev",
-            # but AstroPy only understands "keV". See issue #766.
+            # but Astropy only understands "keV". See issue #766.
             waveunit = wave.waveunit
             if waveunit == "kev":
                 waveunit = "keV"
@@ -325,33 +328,110 @@ class DatabaseEntry(Base):
         else:
             if unit is None:
                 raise WaveunitNotFoundError(qr_block)
-            wavemin = unit.to(nm, float(wave.wavemin), equivalencies.spectral())
+            wavemin = unit.to(nm, float(wave.wavemin),
+                              equivalencies.spectral())
         if wave.wavemax is None:
             wavemax = None
         else:
             if unit is None:
                 raise WaveunitNotFoundError(qr_block)
-            wavemax = unit.to(nm, float(wave.wavemax), equivalencies.spectral())
-        source = str(qr_block.source) if qr_block.source is not None else None
-        provider = str(qr_block.provider) if qr_block.provider is not None else None
-        fileid = str(qr_block.fileid) if qr_block.fileid is not None else None
-        instrument = str(qr_block.instrument) if qr_block.instrument is not None else None
+            wavemax = unit.to(nm, float(wave.wavemax),
+                              equivalencies.spectral())
+        source = getattr(qr_block, 'source', None)
+        provider = getattr(qr_block, 'provider', None)
+        fileid = getattr(qr_block, 'fileid', None)
+        instrument = getattr(qr_block, 'instrument', None)
+        size = getattr(qr_block, 'size', -1)
         physobs = getattr(qr_block, 'physobs', None)
         if physobs is not None:
             physobs = str(physobs)
         return cls(
             source=source, provider=provider, physobs=physobs, fileid=fileid,
             observation_time_start=time_start, observation_time_end=time_end,
-            instrument=instrument, size=qr_block.size,
+            instrument=instrument, size=size,
+            wavemin=wavemin, wavemax=wavemax)
+
+    @classmethod
+    def _from_fido_search_result_block(cls, sr_block, default_waveunit=None):
+        """
+        Make a new :class:`DatabaseEntry` instance from a Fido search
+        result block.
+
+        Parameters
+        ----------
+        sr_block : `sunpy.net.dataretriever.client.QueryResponseBlock`
+            A query result block is usually not created directly; instead,
+            one gets instances of
+            ``sunpy.net.dataretriever.client.QueryResponseBlock`` by iterating
+            over each element of a Fido search result.
+        default_waveunit : `str`, optional
+            The wavelength unit that is used if it cannot be found in the
+            `sr_block`.
+        """
+        # All attributes of DatabaseEntry that are not in QueryResponseBlock
+        # are set as None for now.
+        source = getattr(sr_block, 'source', None)
+        provider = getattr(sr_block, 'provider', None)
+        physobs = getattr(sr_block, 'physobs', None)
+        if physobs is not None:
+            physobs = str(physobs)
+        instrument = getattr(sr_block, 'instrument', None)
+        time_start = sr_block.time.start
+        time_end = sr_block.time.end
+
+        wavelengths = getattr(sr_block, 'wave', None)
+        wavelength_temp = {}
+        if isinstance(wavelength_temp, tuple):
+            # Tuple of values
+            wavelength_temp['wavemin'] = wavelengths[0]
+            wavelength_temp['wavemax'] = wavelengths[1]
+        else:
+            # Single Value
+            wavelength_temp['wavemin'] = wavelength_temp['wavemax'] = wavelengths
+
+        final_values = {}
+        for key, val in wavelength_temp.items():
+            if isinstance(val, quantity.Quantity):
+                unit = getattr(val, 'unit', None)
+                if unit is None:
+                    if default_waveunit is not None:
+                        unit = Unit(default_waveunit)
+                    else:
+                        raise WaveunitNotFoundError(sr_block)
+                final_values[key] = unit.to(nm, float(val.value), equivalencies.spectral())
+            elif val is None or np.isnan(val):
+                final_values[key] = val
+
+        wavemin = final_values['wavemin']
+        wavemax = final_values['wavemax']
+
+        # sr_block.url of a QueryResponseBlock attribute is stored in fileid
+        fileid = str(sr_block.url) if sr_block.url is not None else None
+        size = None
+        return cls(
+            source=source, provider=provider, physobs=physobs, fileid=fileid,
+            observation_time_start=time_start, observation_time_end=time_end,
+            instrument=instrument, size=size,
             wavemin=wavemin, wavemax=wavemax)
 
     def __eq__(self, other):
-        wavemins_equal = self.wavemin is None and other.wavemin is None or\
-            self.wavemin is not None and other.wavemin is not None and\
-            round(self.wavemin, 10) == round(other.wavemin, 10)
-        wavemaxs_equal = self.wavemax is None and other.wavemax is None or\
-            self.wavemax is not None and other.wavemax is not None and\
-            round(self.wavemax, 10) == round(other.wavemax, 10)
+
+        if self.wavemin is None and other.wavemin is None:
+            wavemins_equal = True
+        elif not all([self.wavemin, other.wavemin]):
+            # This means one is None and the other isnt
+            wavemins_equal = False
+        else:
+            wavemins_equal = np.allclose([self.wavemin], [other.wavemin], equal_nan=True)
+
+        if self.wavemax is None and other.wavemax is None:
+            wavemaxs_equal = True
+        elif not all([self.wavemax, other.wavemax]):
+            # This means one is None and the other isnt
+            wavemaxs_equal = False
+        else:
+            wavemaxs_equal = np.allclose([self.wavemax], [other.wavemax], equal_nan=True)
+
         return (
             (self.id == other.id or self.id is None or other.id is None) and
             self.source == other.source and
@@ -369,6 +449,27 @@ class DatabaseEntry(Base):
             bool(self.starred) == bool(other.starred) and
             self.fits_header_entries == other.fits_header_entries and
             self.tags == other.tags)
+
+    def _compare_attributes(self, other, attribute_list):
+        """
+        Compare a given list of attributes of two :class:`DatabaseEntry`
+        instances and return True if all of them match.
+
+        Parameters
+        ----------
+        other : :class:`DatabaseEntry` instance
+
+        attribute_list : `list`
+            The list of attributes that will be compared in both instances,
+            self and other.
+
+        """
+        if len(attribute_list) == 0:
+            raise TypeError('At least one attribute required')
+        for attribute in attribute_list:
+            if getattr(self, attribute) != getattr(other, attribute):
+                return False
+        return True
 
     def __hash__(self):
         return super(DatabaseEntry, self).__hash__()
@@ -393,48 +494,105 @@ class DatabaseEntry(Base):
 
 
 def entries_from_query_result(qr, default_waveunit=None):
-    """Use a query response returned from :meth:`sunpy.net.vso.VSOClient.query`
+    """
+    Use a query response returned from :meth:`sunpy.net.vso.VSOClient.search`
     or :meth:`sunpy.net.vso.VSOClient.query_legacy` to generate instances of
     :class:`DatabaseEntry`. Return an iterator over those instances.
 
     Parameters
     ----------
-    qr : sunpy.net.vso.vso.QueryResponse
+    qr : `sunpy.net.vso.QueryResponse`
         The query response from which to build the database entries.
 
-    default_waveunit : str, optional
+    default_waveunit : `str`, optional
         See :meth:`sunpy.database.DatabaseEntry.from_query_result_block`.
 
     Examples
     --------
     >>> from sunpy.net import vso
     >>> from sunpy.database.tables import entries_from_query_result
-    >>> client = vso.VSOClient()
-    >>> qr = client.query(
+    >>> client = vso.VSOClient()  # doctest: +REMOTE_DATA
+    >>> qr = client.search(
     ...     vso.attrs.Time('2001/1/1', '2001/1/2'),
-    ...     vso.attrs.Instrument('eit'))
-    >>> entries = entries_from_query_result(qr)
-    >>> entry = entries.next()
-    >>> entry.source
-    'SOHO'
-    >>> entry.provider
-    'SDAC'
-    >>> entry.physobs
+    ...     vso.attrs.Instrument('eit'))  # doctest: +REMOTE_DATA
+    >>> entries = entries_from_query_result(qr)  # doctest: +REMOTE_DATA
+    >>> entry = next(entries)  # doctest: +REMOTE_DATA
+    >>> entry.source  # doctest: +REMOTE_DATA
+    SOHO
+    >>> entry.provider  # doctest: +REMOTE_DATA
+    SDAC
+    >>> entry.physobs  # doctest: +REMOTE_DATA
     'intensity'
-    >>> entry.fileid
-    '/archive/soho/private/data/processed/eit/lz/2001/01/efz20010101.010014'
-    >>> entry.observation_time_start, entry.observation_time_end
-    (datetime.datetime(2001, 1, 1, 1, 0, 14), datetime.datetime(2001, 1, 1, 1, 0, 21))
-    >>> entry.instrument
-    'EIT'
-    >>> entry.size
+    >>> entry.fileid  # doctest: +REMOTE_DATA
+    /archive/soho/private/data/processed/eit/lz/2001/01/efz20010101.000042
+    >>> entry.observation_time_start, entry.observation_time_end  # doctest: +REMOTE_DATA
+    (datetime.datetime(2001, 1, 1, 0, 0, 42), datetime.datetime(2001, 1, 1, 0, 0, 54))
+    >>> entry.instrument  # doctest: +REMOTE_DATA
+    EIT
+    >>> entry.size  # doctest: +REMOTE_DATA
     2059.0
-    >>> entry.wavemin, entry.wavemax
-    (17.1, 17.1)
+    >>> entry.wavemin, entry.wavemax  # doctest: +REMOTE_DATA
+    (19.5, 19.5)
 
     """
     for block in qr:
         yield DatabaseEntry._from_query_result_block(block, default_waveunit)
+
+
+def entries_from_fido_search_result(sr, default_waveunit=None):
+    """
+    Use a `sunpy.net.dataretriever.fido_factory.UnifiedResponse`
+    object returned from
+    :meth:`sunpy.net.dataretriever.fido_factory.UnifiedDownloaderFactory.search`
+    to generate instances of :class:`DatabaseEntry`. Return an iterator
+    over those instances.
+
+    Parameters
+    ----------
+    search_result : `sunpy.net.dataretriever.fido_factory.UnifiedResponse`
+            A UnifiedResponse object that is used to store responses from the
+            unified downloader. This is returned by the ``search`` method of a
+            :class:`sunpy.net.dataretriever.fido_factory.UnifiedDownloaderFactory`
+            object.
+
+    default_waveunit : `str`, optional
+        The wavelength unit that is used if it cannot be found in the Query
+        Response block.
+
+    Examples
+    --------
+    >>> from sunpy.net import Fido, attrs
+    >>> from sunpy.database.tables import entries_from_fido_search_result
+    >>> sr = Fido.search(attrs.Time("2012/1/1", "2012/1/2"),
+    ...     attrs.Instrument('lyra')) # doctest: +REMOTE_DATA
+    >>> entries = entries_from_fido_search_result(sr) # doctest: +REMOTE_DATA
+    >>> entry = next(entries) # doctest: +REMOTE_DATA
+    >>> entry.source # doctest: +REMOTE_DATA
+    'Proba2'
+    >>> entry.provider # doctest: +REMOTE_DATA
+    'esa'
+    >>> entry.physobs # doctest: +REMOTE_DATA
+    'irradiance'
+    >>> entry.fileid # doctest: +REMOTE_DATA
+    'http://proba2.oma.be/lyra/data/bsd/2012/01/01/lyra_20120101-000000_lev2_std.fits'
+    >>> entry.observation_time_start, entry.observation_time_end # doctest: +REMOTE_DATA
+    (datetime.datetime(2012, 1, 1, 0, 0), datetime.datetime(2012, 1, 2, 0, 0))
+    >>> entry.instrument # doctest: +REMOTE_DATA
+    'lyra'
+
+    """
+    for entry in sr:
+        if isinstance(entry, sunpy.net.vso.vso.QueryResponse):
+            # This is because Fido can search the VSO. It
+            # returns a VSO QueryResponse.
+            for block in entry:
+                yield DatabaseEntry._from_query_result_block(block, default_waveunit)
+        elif isinstance(entry, sunpy.net.jsoc.jsoc.JSOCResponse):
+            # Adding JSOC results to the DB not supported for now
+            raise ValueError("Cannot add JSOC results to database")
+        else:
+            for block in entry:
+                yield DatabaseEntry._from_fido_search_result_block(block, default_waveunit)
 
 
 def entries_from_file(file, default_waveunit=None,
@@ -480,20 +638,18 @@ def entries_from_file(file, default_waveunit=None,
     Examples
     --------
     >>> from sunpy.database.tables import entries_from_file
-    >>> import sunpy.data
-    >>> sunpy.data.download_sample_data(overwrite=False)   # doctest: +SKIP
-    >>> import sunpy.data.sample
-    >>> entries = list(entries_from_file(sunpy.data.sample.SWAP_LEVEL1_IMAGE))
-    >>> len(entries)
+    >>> import sunpy.data.sample  # doctest: +REMOTE_DATA
+    >>> entries = list(entries_from_file(sunpy.data.sample.SWAP_LEVEL1_IMAGE))  # doctest: +REMOTE_DATA
+    >>> len(entries)  # doctest: +REMOTE_DATA
     1
-    >>> entry = entries.pop()
-    >>> entry.instrument
+    >>> entry = entries.pop()  # doctest: +REMOTE_DATA
+    >>> entry.instrument  # doctest: +REMOTE_DATA
     'SWAP'
-    >>> entry.observation_time_start, entry.observation_time_end
-    (datetime.datetime(2012, 1, 1, 0, 16, 7, 836000), None)
-    >>> entry.wavemin, entry.wavemax
+    >>> entry.observation_time_start, entry.observation_time_end  # doctest: +REMOTE_DATA
+    (datetime.datetime(2011, 6, 7, 6, 33, 29, 759000), None)
+    >>> entry.wavemin, entry.wavemax  # doctest: +REMOTE_DATA
     (17.400000000000002, 17.400000000000002)
-    >>> len(entry.fits_header_entries)
+    >>> len(entry.fits_header_entries)  # doctest: +REMOTE_DATA
     111
 
     """
@@ -539,14 +695,14 @@ def entries_from_file(file, default_waveunit=None,
             # FITS standard, but many FITS files use it in their header
             elif key in ('DATE-END', 'DATE_END'):
                 entry.observation_time_end = parse_time(
-                        value,
-                        _time_string_parse_format=time_string_parse_format
-                        )
+                    value,
+                    _time_string_parse_format=time_string_parse_format
+                )
             elif key in ('DATE-OBS', 'DATE_OBS'):
                 entry.observation_time_start = parse_time(
-                        value,
-                        _time_string_parse_format=time_string_parse_format
-                        )
+                    value,
+                    _time_string_parse_format=time_string_parse_format
+                )
         yield entry
 
 
@@ -593,15 +749,14 @@ def entries_from_dir(fitsdir, recursive=False, pattern='*',
 
     Examples
     --------
+    >>> import os
     >>> from sunpy.data.test import rootdir as fitsdir
     >>> from sunpy.database.tables import entries_from_dir
-    >>> entries = list(entries_from_dir(fitsdir, default_waveunit='angstrom'))
+
+    >>> eitdir = os.path.join(fitsdir, 'EIT')
+    >>> entries = list(entries_from_dir(eitdir, default_waveunit='angstrom'))
     >>> len(entries)
-    38
-    >>> # and now search `fitsdir` recursive
-    >>> entries = list(entries_from_dir(fitsdir, True, default_waveunit='angstrom'))
-    >>> len(entries)
-    59
+    13
 
     """
     for dirpath, dirnames, filenames in os.walk(fitsdir):
@@ -617,7 +772,7 @@ def entries_from_dir(fitsdir, recursive=False, pattern='*',
                 for entry in entries_from_file(
                         path, default_waveunit,
                         time_string_parse_format=time_string_parse_format
-                        ):
+                ):
                     yield entry, path
         if not recursive:
             break

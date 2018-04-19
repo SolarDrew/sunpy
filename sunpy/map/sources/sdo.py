@@ -30,11 +30,11 @@ class AIAMap(GenericMap):
 
     References
     ----------
-    * `SDO Mission Page <http://sdo.gsfc.nasa.gov>`_
+    * `SDO Mission Page <https://sdo.gsfc.nasa.gov/>`_
     * `Instrument Page <http://aia.lmsal.com>`_
     * `Fits Header keywords <http://jsoc.stanford.edu/doc/keywords/AIA/AIA02840_A_AIA-SDO_FITS_Keyword_Documents.pdf>`_
     * `Analysis Guide <https://www.lmsal.com/sdodocs/doc/dcur/SDOD0060.zip/zip/entry/>`_
-    * `Instrument Paper <http://link.springer.com/article/10.1007%2Fs11207-011-9776-8>`_
+    * `Instrument Paper <https://doi.org/10.1007/s11207-011-9776-8>`_
     * `wavelengths and temperature response reference <https://www.lmsal.com/sdodocs/doc/dcur/SDOD0060.zip/zip/entry/figures/aia_tel_resp.png>`_
     """
 
@@ -54,13 +54,6 @@ class AIAMap(GenericMap):
         Returns the observatory.
         """
         return self.meta['telescop'].split('/')[0]
-
-    @property
-    def processing_level(self):
-        """
-        Returns the FITS processing level.
-        """
-        return self.meta['lvl_num']
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
@@ -82,7 +75,7 @@ class HMIMap(GenericMap):
 
     References
     ----------
-    * `SDO Mission Page <http://sdo.gsfc.nasa.gov>`_
+    * `SDO Mission Page <https://sdo.gsfc.nasa.gov/>`_
     * `Instrument Page <http://hmi.stanford.edu>`_
     * `Analysis Guide <http://hmi.stanford.edu/doc/magnetic/guide.pdf>`_
     """
@@ -92,8 +85,7 @@ class HMIMap(GenericMap):
 
         self.meta['detector'] = "HMI"
 #        self.meta['instrme'] = "HMI"
-#        self.meta['obsrvtry'] = "SDO"
-        self.meta['waveunit'] = 'Angstrom'
+#        self.meta['obsrvtry'] = "SDO"        
         self._nickname = self.detector
 
     @property

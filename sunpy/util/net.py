@@ -176,19 +176,19 @@ def url_exists(url, timeout=2):
 
     Parameters
     ----------
-    url: str
+    url: `str`
         A string containing a URL
 
     Returns
     -------
-    value: bool
+    value: `bool`
 
     Examples
     --------
     >>> from sunpy.util.net import url_exists
-    >>> url_exists('http://www.google.com')
+    >>> url_exists('http://www.google.com')  #doctest: +REMOTE_DATA
     True
-    >>> url_exists('http://aslkfjasdlfkjwerf.com')
+    >>> url_exists('http://aslkfjasdlfkjwerf.com')  #doctest: +REMOTE_DATA
     False
     """
     try:
@@ -199,3 +199,20 @@ def url_exists(url, timeout=2):
         return False
     else:
         return True
+
+
+def is_online():
+    """
+    Checks whether an internet connection is available.
+
+    Returns
+    -------
+    value: `bool`
+
+    Examples
+    --------
+    >>> from sunpy.util.net import is_online
+    >>> is_online()  #doctest: +REMOTE_DATA
+    True
+    """
+    return url_exists('http://www.google.com')

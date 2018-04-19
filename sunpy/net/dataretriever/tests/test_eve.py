@@ -12,12 +12,13 @@ from sunpy.net import Fido
 from sunpy.net import attrs as a
 
 from hypothesis import given, settings
-from hypothesis.extra.datetime import datetimes
+from hypothesis.strategies import datetimes
 from sunpy.net.tests.strategies import time_attr
 
 LCClient = eve.EVEClient()
 
 
+@pytest.mark.remote_data
 @pytest.mark.parametrize("timerange,url_start,url_end", [
     (TimeRange('2012/4/21', '2012/4/21'),
      'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2012/20120421_EVE_L0CS_DIODES_1m.txt',
@@ -25,11 +26,11 @@ LCClient = eve.EVEClient()
      ),
     (TimeRange('2012/5/5', '2012/5/6'),
      'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2012/20120505_EVE_L0CS_DIODES_1m.txt',
-     'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2012/20120506_EVE_L0CS_DIODES_1m.txt'
+     'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2012/20120506_EVE_L0CS_DIODES_1m.txt',
      ),
     (TimeRange('2012/7/7', '2012/7/14'),
      'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2012/20120707_EVE_L0CS_DIODES_1m.txt',
-     'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2012/20120714_EVE_L0CS_DIODES_1m.txt'
+     'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2012/20120714_EVE_L0CS_DIODES_1m.txt',
      )
 ])
 def test_get_url_for_time_range(timerange, url_start, url_end):
@@ -37,12 +38,6 @@ def test_get_url_for_time_range(timerange, url_start, url_end):
     assert isinstance(urls, list)
     assert urls[0] == url_start
     assert urls[-1] == url_end
-
-
-@pytest.mark.online
-def test_get_url_for_date():
-    url = LCClient._get_url_for_date(datetime.date(2013, 2, 13))
-    assert url == 'http://lasp.colorado.edu/eve/data_access/evewebdata/quicklook/L0CS/SpWx/2013/20130213_EVE_L0CS_DIODES_1m.txt'
 
 
 def test_can_handle_query():
@@ -56,27 +51,27 @@ def test_can_handle_query():
     assert ans3 is False
 
 
-@pytest.mark.online
+@pytest.mark.remote_data
 def test_query():
-    qr1 = LCClient.query(Time('2012/8/9', '2012/8/10'), Instrument('eve'))
+    qr1 = LCClient.search(Time('2012/8/9', '2012/8/10'), Instrument('eve'))
     assert isinstance(qr1, QueryResponse)
     assert len(qr1) == 2
     assert qr1.time_range().start == parse_time('2012/08/09')
-    assert qr1.time_range().end == parse_time('2012/08/10')
+    assert qr1.time_range().end == parse_time('2012/08/11')  # includes end.
 
 
-@pytest.mark.online
+@pytest.mark.remote_data
 @pytest.mark.parametrize("time,instrument", [
     (Time('2012/11/27', '2012/11/27'), Instrument('eve')),
 ])
 def test_get(time, instrument):
-    qr1 = LCClient.query(time, instrument)
-    res = LCClient.get(qr1)
+    qr1 = LCClient.search(time, instrument)
+    res = LCClient.fetch(qr1)
     download_list = res.wait(progress=False)
     assert len(download_list) == len(qr1)
 
 
-@pytest.mark.online
+@pytest.mark.remote_data
 @pytest.mark.parametrize(
     'query',
     [(a.Time('2012/10/4', '2012/10/6') & a.Instrument('eve') & a.Level(0))])
@@ -89,8 +84,11 @@ def test_fido(query):
     assert len(response) == qr._numfile
 
 
-@pytest.mark.online
-@given(time_attr(time=datetimes(timezones=[], max_year=datetime.datetime.utcnow().year, min_year=2010)))
+@pytest.mark.remote_data
+@given(time_attr(time=datetimes(
+    max_value=datetime.datetime(datetime.datetime.utcnow().year, 1, 1, 0, 0),
+    min_value=datetime.datetime(2010, 1, 1, 0, 0),
+)))
 @settings(max_examples=2, timeout=240)
 def test_levels(time):
     """
@@ -109,4 +107,3 @@ def test_levels(time):
     qr = Fido.search(time, eve_a, a.Level(0) | a.Level(1))
     clients = {type(a.client) for a in qr.responses}
     assert clients.symmetric_difference({VSOClient, eve.EVEClient}) == set()
-

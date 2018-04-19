@@ -26,6 +26,7 @@ from sunpy.util.cond_dispatch import ConditionalDispatch
 from sunpy.util.create import Parent
 from sunpy.spectra.spectrum import Spectrum
 from sunpy.extern.six.moves import zip, range
+from sunpy.util.decorators import deprecated
 
 __all__ = ['Spectrogram', 'LinearTimeSpectrogram']
 
@@ -266,6 +267,7 @@ class TimeFreq(object):
         return ret
 
 
+@deprecated("0.8", "this module is being moved to radiospectra - http://docs.sunpy.org/projects/radiospectra/")
 class Spectrogram(Parent):
     """
     Spectrogram Class.
@@ -885,8 +887,10 @@ class Spectrogram(Parent):
         return format_coord
 
 
+@deprecated("0.8", "this module is being moved to radiospectra - http://docs.sunpy.org/projects/radiospectra/")
 class LinearTimeSpectrogram(Spectrogram):
-    """Spectrogram evenly sampled in time.
+    """
+    Spectrogram evenly sampled in time.
 
     Attributes
     ----------

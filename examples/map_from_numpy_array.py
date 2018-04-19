@@ -13,6 +13,7 @@ A simple demonstration of creating a map from a numpy array of data.
 from __future__ import print_function, division
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 import sunpy.map
 import sunpy.data.sample
@@ -36,3 +37,4 @@ print(manual_map.coordinate_system)
 ##############################################################################
 # You can quickly plot a map using the peek method:
 manual_map.peek()
+plt.show()

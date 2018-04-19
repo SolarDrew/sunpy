@@ -38,9 +38,9 @@ def test_can_handle_query():
     assert ans3 == False
 
 
-@pytest.mark.online
+@pytest.mark.remote_data
 def test_query():
-    qr1 = LCClient.query(
+    qr1 = LCClient.search(
         Time('2012/8/9', '2012/8/10'), Instrument('noaa-indices'))
     assert isinstance(qr1, QueryResponse)
     assert len(qr1) == 1
@@ -48,19 +48,19 @@ def test_query():
     assert qr1.time_range().end == parse_time('2012/08/10')
 
 
-@pytest.mark.online
+@pytest.mark.remote_data
 @pytest.mark.parametrize("time, instrument", [
     (Time('2012/11/27', '2012/11/27'), Instrument('noaa-indices')),
     (Time('2012/10/4', '2012/10/6'), Instrument('noaa-indices')),
 ])
 def test_get(time, instrument):
-    qr1 = LCClient.query(time, instrument)
+    qr1 = LCClient.search(time, instrument)
     res = LCClient.get(qr1)
     download_list = res.wait(progress=False)
     assert len(download_list) == len(qr1)
 
 
-@pytest.mark.online
+@pytest.mark.remote_data
 @pytest.mark.parametrize(
     "time, instrument",
     [(a.Time("2012/10/4", "2012/10/6"), a.Instrument('noaa-indices')),

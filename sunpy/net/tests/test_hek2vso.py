@@ -40,11 +40,11 @@ def hek_client():
 def vso_client():
     vso.VSOClient()
 
-@pytest.mark.online
+@pytest.mark.remote_data
 def test_translate_results_to_query():
     """Make sure that conversion of HEK results to VSO queries is accurate"""
     h = hek.HEKClient()
-    hek_query = h.query(hekTime, hekEvent)
+    hek_query = h.search(hekTime, hekEvent)
     vso_query = hek2vso.translate_results_to_query(hek_query)
 
     if isinstance(hek_query, list):
@@ -53,11 +53,11 @@ def test_translate_results_to_query():
         #Comparing types of both queries
         assert type(hek_query) == type(vso_query)
 
-@pytest.mark.online
+@pytest.mark.remote_data
 def test_vso_attribute_parse():
     """Make sure that Parsing of VSO attributes from HEK queries is accurate"""
     h = hek.HEKClient()
-    hek_query = h.query(hekTime, hekEvent)
+    hek_query = h.search(hekTime, hekEvent)
     vso_query = hek2vso.vso_attribute_parse(hek_query[0])
 
     # Checking Time
