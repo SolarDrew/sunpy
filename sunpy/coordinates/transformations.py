@@ -22,10 +22,15 @@ from astropy.coordinates.representation import (CartesianRepresentation,
                                                 UnitSphericalRepresentation,
                                                 SphericalRepresentation)
 from astropy.coordinates.baseframe import frame_transform_graph
-from astropy.coordinates.builtin_frames import _make_transform_graph_docs
+try:
+    from astropy.coordinates.builtin_frames import _make_transform_graph_docs as make_transform_graph_docs
+except ImportError:
+    from astropy.coordinates import make_transform_graph_docs as _make_transform_graph_docs
+    make_transform_graph_docs = lambda: _make_transform_graph_docs(frame_transform_graph)
 from astropy.coordinates.transformations import FunctionTransform, DynamicMatrixTransform
 from astropy.coordinates.matrix_utilities import rotation_matrix, matrix_product, matrix_transpose
 from astropy.coordinates import HCRS, get_body_barycentric, BaseCoordinateFrame, ConvertError
+from astropy.tests.helper import quantity_allclose
 
 from .frames import (HeliographicStonyhurst, HeliographicCarrington,
                      Heliocentric, Helioprojective)
@@ -51,6 +56,16 @@ def _carrington_offset(obstime):
     from .ephemeris import get_sun_L0
     return get_sun_L0(obstime)
 
+
+def _observers_are_equal(obs_1, obs_2):
+    if not (isinstance(obs_1, BaseCoordinateFrame) and isinstance(obs_2, BaseCoordinateFrame)):
+        raise ValueError("To compare two observers, both must be instances of BaseCoordinateFrame. "
+                         "Cannot compare two observers {} and {}.".format(obs_1, obs_2))
+    return (quantity_allclose(obs_1.lat, obs_2.lat) and
+            quantity_allclose(obs_1.lon, obs_2.lon) and
+            quantity_allclose(obs_1.radius, obs_2.radius))
+
+
 # =============================================================================
 # ------------------------- Transformation Framework --------------------------
 # =============================================================================
@@ -67,8 +82,8 @@ def hgs_to_hgc(hgscoord, hgcframe):
                          "Heliographic Carrington, unless both frames have matching obstime.")
 
     c_lon = hgscoord.spherical.lon + _carrington_offset(hgscoord.obstime).to(u.deg)
-    representation = SphericalRepresentation(c_lon, hgscoord.lat,
-                                             hgscoord.radius)
+    representation = SphericalRepresentation(c_lon, hgscoord.spherical.lat,
+                                             hgscoord.spherical.distance)
     hgcframe = hgcframe.__class__(obstime=hgscoord.obstime)
 
     return hgcframe.realize_frame(representation)
@@ -86,8 +101,8 @@ def hgc_to_hgs(hgccoord, hgsframe):
     obstime = hgsframe.obstime
     s_lon = hgccoord.spherical.lon - _carrington_offset(obstime).to(
         u.deg)
-    representation = SphericalRepresentation(s_lon, hgccoord.lat,
-                                             hgccoord.radius)
+    representation = SphericalRepresentation(s_lon, hgccoord.spherical.lat,
+                                             hgccoord.spherical.distance)
 
     return hgsframe.realize_frame(representation)
 
@@ -98,6 +113,13 @@ def hcc_to_hpc(helioccoord, heliopframe):
     """
     Convert from Heliocentic Cartesian to Helioprojective Cartesian.
     """
+    if not _observers_are_equal(helioccoord.observer, heliopframe.observer):
+        raise ConvertError("Cannot directly transform heliocentric coordinates to "
+                           "helioprojective coordinates for different "
+                           "observers {} and {}. See discussion in this GH issue: "
+                           "https://github.com/sunpy/sunpy/issues/2712. Try converting to "
+                           "an intermediate heliographic Stonyhurst frame.".format(
+                               helioccoord.observer, heliopframe.observer))
 
     x = helioccoord.x.to(u.m)
     y = helioccoord.y.to(u.m)
@@ -122,6 +144,14 @@ def hpc_to_hcc(heliopcoord, heliocframe):
     """
     Convert from Helioprojective Cartesian to Heliocentric Cartesian.
     """
+    if not _observers_are_equal(heliopcoord.observer, heliocframe.observer):
+        raise ConvertError("Cannot directly transform helioprojective coordinates to "
+                           "heliocentric coordinates for different "
+                           "observers {} and {}. See discussion in this GH issue: "
+                           "https://github.com/sunpy/sunpy/issues/2712. Try converting to "
+                           "an intermediate heliographic Stonyhurst frame.".format(
+                               heliopcoord.observer, heliocframe.observer))
+
     if not isinstance(heliopcoord.observer, BaseCoordinateFrame):
         raise ConvertError("Cannot transform helioprojective coordinates to "
                            "heliocentric coordinates for observer '{}' "
@@ -182,12 +212,9 @@ def hgs_to_hcc(heliogcoord, heliocframe):
     """
     Convert from Heliographic Stonyhurst to Heliocentric Cartesian.
     """
-    # Import moved here from top of file to lessen the impact of issue #2580
-    # TODO: Revert this.
-    from astropy.tests.helper import quantity_allclose
-    hglon = heliogcoord.lon
-    hglat = heliogcoord.lat
-    r = heliogcoord.radius
+    hglon = heliogcoord.spherical.lon
+    hglat = heliogcoord.spherical.lat
+    r = heliogcoord.spherical.distance
     if r.unit is u.one and quantity_allclose(r, 1*u.one):
         r = np.ones_like(r)
         r *= RSUN_METERS
@@ -223,7 +250,6 @@ def hgs_to_hcc(heliogcoord, heliocframe):
     return heliocframe.realize_frame(representation)
 
 
-
 @frame_transform_graph.transform(FunctionTransform, Helioprojective,
                                  Helioprojective)
 def hpc_to_hpc(heliopcoord, heliopframe):
@@ -231,12 +257,7 @@ def hpc_to_hpc(heliopcoord, heliopframe):
     This converts from HPC to HPC, with different observer location parameters.
     It does this by transforming through HGS.
     """
-    # TODO: Revert this.
-    from astropy.tests.helper import quantity_allclose
-    if (heliopcoord.observer == heliopframe.observer or
-        (quantity_allclose(heliopcoord.observer.lat, heliopframe.observer.lat) and
-         quantity_allclose(heliopcoord.observer.lon, heliopframe.observer.lon) and
-         quantity_allclose(heliopcoord.observer.radius, heliopframe.observer.radius))):
+    if _observers_are_equal(heliopcoord.observer, heliopframe.observer):
         return heliopframe.realize_frame(heliopcoord._data)
 
     if not isinstance(heliopframe.observer, BaseCoordinateFrame):
@@ -337,4 +358,4 @@ def hgs_to_hgs(from_coo, to_frame):
         return from_coo.transform_to(HCRS).transform_to(to_frame)
 
 
-__doc__ += _make_transform_graph_docs()
+__doc__ += make_transform_graph_docs()

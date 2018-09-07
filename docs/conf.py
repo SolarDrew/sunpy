@@ -52,6 +52,7 @@ except ImportError:
 
 try:
     import sphinx_gallery
+    from sphinx_gallery.sorting import ExplicitOrder
     if on_rtd and os.environ.get('READTHEDOCS_PROJECT').lower() != 'sunpy':
         # Gallery takes too long on RTD to build unless you have extra build time.
         has_sphinx_gallery = False
@@ -207,7 +208,7 @@ extensions += ['sphinx_astropy.ext.edit_on_github', 'sphinx.ext.doctest', 'sphin
 # "version" configuration parameter
 edit_on_github_project = "sunpy/sunpy"
 if versionmod.release:
-    edit_on_github_branch = "v{0}.{1}.x".format(versionmod.major, versionmod.minor)
+    edit_on_github_branch = "{0}.{1}".format(versionmod.major, versionmod.minor)
 else:
     edit_on_github_branch = "master"
 edit_on_github_source_root = ""
@@ -224,6 +225,12 @@ if has_sphinx_gallery:
         'filename_pattern':
         '^((?!skip_).)*$',  # execute all examples except those that start with "skip_"
         'examples_dirs': os.path.join('..', 'examples'),  # path to the examples scripts
+        'subsection_order': ExplicitOrder([(os.path.join('..', 'examples/acquiring_data')),
+                                           (os.path.join('..', 'examples/maps')),
+                                           (os.path.join('..', 'examples/time_series')),
+                                           (os.path.join('..', 'examples/units_and_coordinates')),
+                                           (os.path.join('..', 'examples/plotting')),
+                                           (os.path.join('..', 'examples/computer_vision_techniques'))]),
         'gallery_dirs': os.path.join('generated',
                                     'gallery'),  # path to save gallery generated examples
         'default_thumb_file': os.path.join('.', 'logo', 'sunpy_icon_128x128.png'),

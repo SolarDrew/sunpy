@@ -1,11 +1,13 @@
 """SOHO Map subclass definitions"""
 from __future__ import absolute_import, print_function, division
-#pylint: disable=W0221,W0222,E1101,E1121
+
+# pylint: disable=W0221,W0222,E1101,E1121
 
 __author__ = "Keith Hughitt"
 __email__ = "keith.hughitt@nasa.gov"
 
 import numpy as np
+import matplotlib.pyplot as plt
 from matplotlib import colors
 
 from astropy.units import Quantity
@@ -15,7 +17,6 @@ from astropy.visualization.mpl_normalize import ImageNormalize
 from sunpy.map import GenericMap
 from sunpy.sun import constants
 from sunpy.sun import sun
-from sunpy.cm import cm
 from sunpy.map.sources.source_type import source_stretch
 from sunpy.coordinates import get_sunearth_distance
 
@@ -61,7 +62,6 @@ class EITMap(GenericMap):
     """
 
     def __init__(self, data, header, **kwargs):
-
         GenericMap.__init__(self, data, header, **kwargs)
 
         # Fill in some missing info
@@ -69,7 +69,7 @@ class EITMap(GenericMap):
         self.meta['waveunit'] = "Angstrom"
         self._fix_dsun()
         self._nickname = self.detector
-        self.plot_settings['cmap'] = cm.get_cmap(self._get_cmap_name())
+        self.plot_settings['cmap'] = plt.get_cmap(self._get_cmap_name())
         self.plot_settings['norm'] = ImageNormalize(stretch=source_stretch(self.meta, PowerStretch(0.5)))
 
     @property
@@ -114,20 +114,22 @@ class LASCOMap(GenericMap):
         self.meta['CUNIT2'] = self.meta['CUNIT2'].lower()
 
         # Fill in some missing or broken info
-        datestr = "{date}T{time}".format(date=self.meta.get('date-obs',
-                                                            self.meta.get('date_obs')
-                                                            ),
-                                         time=self.meta.get('time-obs',
-                                                            self.meta.get('time_obs')
-                                                            )
-                                         )
-        self.meta['date-obs'] = datestr
+        # Test if change has already been applied
+        if 'T' not in self.meta['date-obs']:
+            datestr = "{date}T{time}".format(date=self.meta.get('date-obs',
+                                                                self.meta.get('date_obs')
+                                                                ),
+                                             time=self.meta.get('time-obs',
+                                                                self.meta.get('time_obs')
+                                                                )
+                                             )
+            self.meta['date-obs'] = datestr
 
         # If non-standard Keyword is present, correct it too, for compatibility.
         if 'date_obs' in self.meta:
             self.meta['date_obs'] = self.meta['date-obs']
         self._nickname = self.instrument + "-" + self.detector
-        self.plot_settings['cmap'] = cm.get_cmap('soholasco{det!s}'.format(det=self.detector[1]))
+        self.plot_settings['cmap'] = plt.get_cmap('soholasco{det!s}'.format(det=self.detector[1]))
         self.plot_settings['norm'] = ImageNormalize(stretch=source_stretch(self.meta, PowerStretch(0.5)))
 
     @property

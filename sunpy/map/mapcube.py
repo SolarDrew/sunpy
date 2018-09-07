@@ -1,8 +1,9 @@
 """A Python MapCube Object"""
 from __future__ import absolute_import, division, print_function
-#pylint: disable=W0401,W0614,W0201,W0212,W0404
 
 from copy import deepcopy
+
+import warnings
 
 import numpy as np
 import matplotlib.animation
@@ -11,15 +12,18 @@ import numpy.ma as ma
 import astropy.units as u
 
 from sunpy.map import GenericMap
-from sunpy.visualization.mapcubeanimator import MapCubeAnimator
+from sunpy.visualization.animator import MapSequenceAnimator
 from sunpy.visualization import wcsaxes_compat
 from sunpy.visualization import axis_labels_from_ctype
-from sunpy.util import expand_list
+from sunpy.util import expand_list, deprecated
+from sunpy.util.exceptions import SunpyDeprecationWarning
 from sunpy.extern.six.moves import range
 
 __all__ = ['MapCube']
 
 
+@deprecated('0.9.1', message='Deprecated in favor of MapSequence.',
+            alternative='MapSequence')
 class MapCube(object):
     """
     MapCube
@@ -50,9 +54,12 @@ class MapCube(object):
 
     Mapcubes can be co-aligned using the routines in sunpy.image.coalignment.
     """
-    #pylint: disable=W0613,E1101
     def __init__(self, *args, **kwargs):
         """Creates a new Map instance"""
+
+        # Renaming mapcube functionality to mapsequence
+        warnings.warn("Deprecated in favor of MapSequence. MapSequence has the same functionality as MapCube.",
+                      SunpyDeprecationWarning, stacklevel=2)
 
         # Hack to get around Python 2.x not backporting PEP 3102.
         sortby = kwargs.pop('sortby', 'date')
@@ -205,7 +212,8 @@ class MapCube(object):
 
             if wcsaxes_compat.is_wcsaxes(axes):
                 im.axes.reset_wcs(ani_data[i].wcs)
-                wcsaxes_compat.default_wcs_grid(axes)
+                wcsaxes_compat.default_wcs_grid(axes, ani_data[i].spatial_units,
+                                                ani_data[i].coordinate_system)
             else:
                 im.set_extent(np.concatenate((ani_data[i].xrange.value,
                                               ani_data[i].yrange.value)))
@@ -302,7 +310,7 @@ class MapCube(object):
         else:
             plot_cube = self
 
-        return MapCubeAnimator(plot_cube, **kwargs)
+        return MapSequenceAnimator(plot_cube, **kwargs)
 
     def all_maps_same_shape(self):
         """
