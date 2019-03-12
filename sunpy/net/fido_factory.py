@@ -8,16 +8,13 @@ This module provides the `Fido
 `Fido.fetch <sunpy.net.fido_factory.UnifiedDownloaderFactory.fetch>`.
 
 """
-# This module was initially developed under funding provided by Google Summer
-# of Code 2014
-from __future__ import print_function, absolute_import
 from collections import Sequence
 
 from sunpy.util.datatype_factory_base import BasicRegistrationFactory
 from sunpy.util.datatype_factory_base import NoMatchError
 from sunpy.util.datatype_factory_base import MultipleMatchError
 
-from sunpy.net.dataretriever.clients import CLIENTS
+from sunpy.net.base_client import BaseClient
 from sunpy.net.dataretriever.client import QueryResponse
 from sunpy.net.vso import VSOClient, QueryResponse as vsoQueryResponse
 
@@ -271,7 +268,7 @@ def _create_or(walker, query, factory):
 
 class UnifiedDownloaderFactory(BasicRegistrationFactory):
     """
-    sunpy.net.Fido(\*args, \*\*kwargs)
+    sunpy.net.Fido(\\*args, \\*\\*kwargs)
 
     Search and Download data from a variety of supported sources.
     """
@@ -321,7 +318,7 @@ class UnifiedDownloaderFactory(BasicRegistrationFactory):
         ie. query is now of form A & B or ((A & B) | (C & D))
         This helps in modularising query into parts and handling each of the
         parts individually.
-        """
+        """  # noqa
         query = attr.and_(*query)
         return UnifiedResponse(query_walker.create(query, self))
 
@@ -353,7 +350,7 @@ class UnifiedDownloaderFactory(BasicRegistrationFactory):
         >>> unifresp = Fido.search(Time('2012/3/4','2012/3/5'), Instrument('EIT'))  # doctest: +REMOTE_DATA
         >>> downresp = Fido.fetch(unifresp)  # doctest: +SKIP
         >>> file_paths = downresp.wait()  # doctest: +SKIP
-        """
+        """  # noqa
         wait = kwargs.pop("wait", True)
         progress = kwargs.pop("progress", True)
         reslist = []
@@ -419,4 +416,4 @@ class UnifiedDownloaderFactory(BasicRegistrationFactory):
 
 
 Fido = UnifiedDownloaderFactory(
-    registry=CLIENTS, additional_validation_functions=['_can_handle_query'])
+    registry=BaseClient._registry, additional_validation_functions=['_can_handle_query'])

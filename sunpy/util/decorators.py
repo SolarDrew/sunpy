@@ -2,8 +2,6 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 """Sundry function and class decorators."""
 
-from __future__ import print_function
-
 
 import functools
 import inspect
@@ -12,7 +10,6 @@ import types
 import warnings
 
 from sunpy.util.exceptions import SunpyDeprecationWarning
-from sunpy.extern import six
 
 __all__ = ['deprecated']
 
@@ -107,7 +104,7 @@ def deprecated(since, message='', name='', alternative=''):
         # functools.wraps on it, but we normally don't care.
         # This crazy way to get the type of a wrapper descriptor is
         # straight out of the Python 3.3 inspect module docs.
-        if type(func) is not type(str.__dict__['__add__']):  # nopep8
+        if type(func) is not type(str.__dict__['__add__']):  # noqa
             deprecated_func = functools.wraps(func)(deprecated_func)
 
         deprecated_func.__doc__ = deprecate_doc(
@@ -185,7 +182,7 @@ def deprecated(since, message='', name='', alternative=''):
     return deprecate
 
 
-class add_common_docstring(object):
+class add_common_docstring:
     """
     A function decorator that will append and/or prepend an addendum
     to the docstring of the target function.
@@ -215,10 +212,10 @@ class add_common_docstring(object):
         func.__doc__ = func.__doc__ if func.__doc__ else ''
         self.append = self.append if self.append else ''
         self.prepend = self.prepend if self.prepend else ''
-        if self.append and isinstance(func.__doc__, six.string_types):
+        if self.append and isinstance(func.__doc__, str):
             func.__doc__ += self.append
-        if self.prepend and isinstance(func.__doc__, six.string_types):
+        if self.prepend and isinstance(func.__doc__, str):
             func.__doc__ = self.prepend + func.__doc__
         if self.kwargs:
-            func.__doc__ = func.__doc__.format(self.kwargs)
+            func.__doc__ = func.__doc__.format(**self.kwargs)
         return func

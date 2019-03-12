@@ -26,8 +26,9 @@
 # be accessible, and the documentation will not build correctly.
 
 import os
-import datetime
 import sys
+import pathlib
+import datetime
 from distutils.version import LooseVersion
 
 from sphinx import __version__
@@ -47,7 +48,7 @@ if not SPHINX_LT_17:
 try:
     from sphinx_astropy.conf.v1 import *
 except ImportError:
-    print('ERROR: the documentation requires the sphinx-astropy package to be installed')
+    print('ERROR: the documentation requires the "sphinx-astropy" package to be installed')
     sys.exit(1)
 
 try:
@@ -68,12 +69,44 @@ if on_rtd:
     os.environ['LC_ALL'] = 'C'
 
 try:
-    import suds
+    import zeep
 except ImportError:
-    print('ERROR: suds could not be imported and the documentation requires the suds-jerko package to be installed')
+    print('ERROR: zeep could not be imported. Building the documentation requires '
+          'the "zeep" package to be installed')
     sys.exit(1)
 
-from sunpy import version as versionmod
+try:
+    import skimage
+except ImportError:
+    print('ERROR: skimage could not be imported. Building the documentation requires '
+          'the "scikit-image" package to be installed')
+    sys.exit(1)
+
+try:
+    import drms
+except ImportError:
+    print('ERROR: drms could not be imported. Building the documentation requires '
+          'the "drms" package to be installed')
+    sys.exit(1)
+
+try:
+    import glymur
+except ImportError:
+    print('ERROR: glymur could not be imported. Building the documentation requires '
+          'the "glymur" package to be installed')
+    sys.exit(1)
+
+from pkg_resources import get_distribution
+versionmod = get_distribution('sunpy')
+
+# The version info for the project you're documenting, acts as replacement for
+# |version| and |release|, also used in various other places throughout the
+# built documents.
+# The short X.Y version.
+release = '.'.join(versionmod.version.split('.')[:3])
+# The full version, including alpha/beta/rc tags.
+version = versionmod.version.split('+')[0]
+
 
 # -- Shut up numpy warnings from WCSAxes --------------------------------------
 import numpy as np
@@ -108,7 +141,7 @@ if 'templates_path' not in locals():  # in case parent conf.py defines it
 templates_path.append('_templates')
 
 # For the linkcheck
-linkcheck_ignore = [r" https://doi.org/\d+",
+linkcheck_ignore = [r"https://doi.org/\d+",
                     r"https://riot.im/\d+",
                     r"https://github.com/\d+",
                     r"http://docs.sunpy.org/\d+"]
@@ -127,14 +160,6 @@ rst_epilog += """
 project = u'SunPy'
 author = u'The SunPy Community'
 copyright = u'{}, {}'.format(datetime.datetime.now().year, author)
-
-# The version info for the project you're documenting, acts as replacement for
-# |version| and |release|, also used in various other places throughout the
-# built documents.
-# The short X.Y version.
-version = versionmod.version.split('-', 1)[0]
-# The full version, including alpha/beta/rc tags.
-release = versionmod.version
 
 try:
     from sunpy_sphinx_theme.conf import *
@@ -167,6 +192,7 @@ try:
             source[0] = rendered
 except ImportError:
     has_yaml = False
+    html_context = {}
     print('Warning: Stability of SunPy API page of the documentation requires the ruamel.yaml package to be installed')
 
 # The name of an image file (within the static path) to use as favicon of the
@@ -180,6 +206,9 @@ html_title = '{0} v{1}'.format(project, release)
 
 # Output file base name for HTML help builder.
 htmlhelp_basename = project + 'doc'
+
+# A dictionary of values to pass into the template engine’s context for all pages.
+html_context['to_be_indexed'] = ['stable', 'latest']
 
 # -- Options for LaTeX output --------------------------------------------------
 # Grouping the document tree into LaTeX files. List of tuples
@@ -207,8 +236,8 @@ extensions += ['sphinx_astropy.ext.edit_on_github', 'sphinx.ext.doctest', 'sphin
 # Don't import the module as "version" or it will override the
 # "version" configuration parameter
 edit_on_github_project = "sunpy/sunpy"
-if versionmod.release:
-    edit_on_github_branch = "{0}.{1}".format(versionmod.major, versionmod.minor)
+if 'dev' not in release:
+    edit_on_github_branch = "{}".format(version)
 else:
     edit_on_github_branch = "master"
 edit_on_github_source_root = ""
@@ -219,21 +248,22 @@ github_issues_url = 'https://github.com/sunpy/sunpy/issues/'
 # -- Options for the Sphinx gallery -------------------------------------------
 if has_sphinx_gallery:
     extensions += ["sphinx_gallery.gen_gallery"]
+    path = pathlib.Path.cwd()
+    example_dir = path.parent.joinpath('examples')
     sphinx_gallery_conf = {
         'backreferences_dir':
-        'generated{}modules'.format(os.sep),  # path to store the module using example template
-        'filename_pattern':
-        '^((?!skip_).)*$',  # execute all examples except those that start with "skip_"
-        'examples_dirs': os.path.join('..', 'examples'),  # path to the examples scripts
+        path.joinpath('generated', 'modules'),  # path to store the module using example template
+        'filename_pattern': '^((?!skip_).)*$',  # execute all examples except those that start with "skip_"
+        'examples_dirs': example_dir,  # path to the examples scripts
         'subsection_order': ExplicitOrder([(os.path.join('..', 'examples/acquiring_data')),
-                                           (os.path.join('..', 'examples/maps')),
+                                           (os.path.join('..', 'examples/map')),
                                            (os.path.join('..', 'examples/time_series')),
                                            (os.path.join('..', 'examples/units_and_coordinates')),
                                            (os.path.join('..', 'examples/plotting')),
+                                           (os.path.join('..', 'examples/saving_and_loading_data')),
                                            (os.path.join('..', 'examples/computer_vision_techniques'))]),
-        'gallery_dirs': os.path.join('generated',
-                                    'gallery'),  # path to save gallery generated examples
-        'default_thumb_file': os.path.join('.', 'logo', 'sunpy_icon_128x128.png'),
+        'gallery_dirs': path.joinpath('generated', 'gallery'),  # path to save gallery generated examples
+        'default_thumb_file': path.joinpath('logo', 'sunpy_icon_128x128.png'),
         'reference_url': {
             'sunpy': None,
             'astropy': 'http://docs.astropy.org/en/stable/',
@@ -243,6 +273,20 @@ if has_sphinx_gallery:
         'abort_on_example_error': True,
         'plot_gallery': True
     }
+
+
+"""
+Write the latest changelog into the documentation.
+"""
+target_file = os.path.abspath("./whatsnew/latest_changelog.txt")
+try:
+    from sunpy.util.towncrier import generate_changelog_for_docs
+    generate_changelog_for_docs("../", target_file)
+except Exception:
+    # If we can't generate it, we need to make sure it exists or else sphinx
+    # will complain.
+    open(target_file, 'a').close()
+
 
 def setup(app):
     if not has_sphinx_gallery:

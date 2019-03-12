@@ -4,8 +4,9 @@ This module contains errors/exceptions and warnings of general use for
 sunpy. Exceptions that are specific to a given subpackage should *not*
 be here, but rather in the particular subpackage.
 """
-from __future__ import (absolute_import, division, print_function,
-                        unicode_literals)
+import sys
+
+__all__ = ["SunpyWarning", "SunpyUserWarning", "SunpyDeprecationWarning"]
 
 
 class SunpyWarning(Warning):
@@ -22,7 +23,11 @@ class SunpyUserWarning(UserWarning, SunpyWarning):
     """
 
 
-class SunpyDeprecationWarning(SunpyWarning):
+# For PEP 565 (https://www.python.org/dev/peps/pep-0565/) compliance.
+DeprecationClass = DeprecationWarning if sys.version_info >= (3, 7) else FutureWarning
+
+
+class SunpyDeprecationWarning(DeprecationClass, SunpyWarning):
     """
     A warning class to indicate a deprecated feature.
     """

@@ -72,13 +72,9 @@ Traceback (most recent call last):
 TypeError: There are no functions matching your input parameter signature.
 """
 
-from __future__ import absolute_import, division, print_function
-
 import inspect
 
 from itertools import chain, repeat
-
-from sunpy.extern.six.moves import zip
 
 __all__ = ['run_cls', 'matches_types', 'arginize', 'correct_argspec',
            'matches_signature', 'ConditionalDispatch', 'fmt_argspec_types']
@@ -106,7 +102,11 @@ def matches_types(fun, types, args, kwargs):
 def arginize(fun, a, kw):
     """ Turn args and kwargs into args by considering the function
     signature. """
-    args, varargs, keywords, defaults = correct_argspec(fun)
+    argspec = correct_argspec(fun)
+    args = argspec.args
+    varargs = argspec.varargs
+    defaults = argspec.defaults
+
     if varargs is not None:
         raise ValueError
     names = args[len(a):]
@@ -119,16 +119,21 @@ def arginize(fun, a, kw):
 
 def correct_argspec(fun):
     """ Remove first argument if method is bound. """
-    args, varargs, keywords, defaults = inspect.getargspec(fun)
+    fullargspec = inspect.getfullargspec(fun)
     if inspect.ismethod(fun):
-        args = args[1:]
-    return args, varargs, keywords, defaults
+        fullargspec = fullargspec[1:]
+    return fullargspec
 
 
 def matches_signature(fun, a, kw):
     """ Check whether function can be called with a as args and kw as kwargs.
     """
-    args, varargs, keywords, defaults = correct_argspec(fun)
+    argspec = correct_argspec(fun)
+    args = argspec.args
+    varargs = argspec.varargs
+    keywords = argspec.varkw
+    defaults = argspec.defaults
+
     if varargs is None and len(a) > len(args):
         return False
     skw = set(kw)
@@ -138,7 +143,7 @@ def matches_signature(fun, a, kw):
     # in fun's signature.
     if keywords is None and skw - sargs != set():
         return False
-    rest = set(args[len(a):])  - set(kw)
+    rest = set(args[len(a):]) - set(kw)
 
     # If there are any arguments that weren't passed but do not have
     # defaults, the signature does not match.
