@@ -12,29 +12,24 @@ when comparing observations of features on the Sun over time.
 A good review can be found in Beck 1999 Solar Physics 191, 47–70.
 This example illustrates solar differential rotation.
 """
+# sphinx_gallery_thumbnail_number = 2
 
-##############################################################################
-# Start by importing the necessary modules.
-
-from __future__ import print_function, division
-
-from datetime import timedelta
-
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
+from astropy.time import TimeDelta
 
-import sunpy.map
 import sunpy.data.sample
+import sunpy.map
 from sunpy.physics.differential_rotation import diff_rot, solar_rotate_coordinate
 
 ##############################################################################
 # Next lets explore solar differential rotation by replicating Figure 1
-# in Beck 1999
+# in Beck 1999.
 
-latitudes = u.Quantity(np.arange(0, 90, 1), 'deg')
+latitudes = np.arange(0, 90, 1) * u.deg
 dt = 1 * u.day
 rotation_rate = [diff_rot(dt, this_lat) / dt for this_lat in latitudes]
 rotation_period = [360 * u.deg / this_rate for this_rate in rotation_rate]
@@ -42,7 +37,7 @@ rotation_period = [360 * u.deg / this_rate for this_rate in rotation_rate]
 fig = plt.figure()
 plt.plot(np.sin(latitudes), [this_period.value for this_period in rotation_period])
 plt.ylim(38, 24)
-plt.ylabel('Rotation Period [{0}]'.format(rotation_period[0].unit))
+plt.ylabel('Rotation Period [{}]'.format(rotation_period[0].unit))
 plt.xlabel('Sin(Latitude)')
 plt.title('Solar Differential Rotation Rate')
 
@@ -53,15 +48,15 @@ plt.title('Solar Differential Rotation Rate')
 aia_map = sunpy.map.Map(sunpy.data.sample.AIA_171_IMAGE)
 
 ##############################################################################
-# Let's define our starting coordinates
+# Let's define our starting coordinates.
 
-hpc_y = u.Quantity(np.arange(-700, 800, 100), u.arcsec)
+hpc_y = np.arange(-700, 800, 100) * u.arcsec
 hpc_x = np.zeros_like(hpc_y)
 
 ##############################################################################
-# Let's define how many days in the future we want to rotate to
+# Let's define how many days in the future we want to rotate to.
 
-dt = timedelta(days=4)
+dt = TimeDelta(4*u.day)
 future_date = aia_map.date + dt
 
 ##############################################################################
@@ -69,18 +64,18 @@ future_date = aia_map.date + dt
 
 fig = plt.figure()
 ax = plt.subplot(projection=aia_map)
-aia_map.plot()
-ax.set_title('The effect of {0} days of differential rotation'.format(dt.days))
+aia_map.plot(clip_interval=(1, 99.99)*u.percent)
+ax.set_title('The effect of {} days of differential rotation'.format(dt.to(u.day).value))
 aia_map.draw_grid()
 
 for this_hpc_x, this_hpc_y in zip(hpc_x, hpc_y):
     start_coord = SkyCoord(this_hpc_x, this_hpc_y, frame=aia_map.coordinate_frame)
-    rotated_coord = solar_rotate_coordinate(start_coord, future_date)
+    rotated_coord = solar_rotate_coordinate(start_coord, time=future_date)
     coord = SkyCoord([start_coord.Tx, rotated_coord.Tx],
                      [start_coord.Ty, rotated_coord.Ty],
                      frame=aia_map.coordinate_frame)
     ax.plot_coord(coord, 'o-')
-
 plt.ylim(0, aia_map.data.shape[1])
 plt.xlim(0, aia_map.data.shape[0])
+
 plt.show()

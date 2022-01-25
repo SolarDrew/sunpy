@@ -1,147 +1,95 @@
-from __future__ import absolute_import, division, print_function
-
+"""
+This module provides functions to retrieve system information.
+"""
 import platform
-import datetime
+
+from pkg_resources import get_distribution
+
+import sunpy.extern.distro as distro
+
+__all__ = ['system_info', 'find_dependencies', 'missing_dependencies_by_extra']
 
 
-__all__ = ['get_sys_dict', 'system_info']
-
-
-
-def get_sys_dict():
+def find_dependencies(package="sunpy", extras=None):
     """
-    Test which packages are installed on system.
+    List installed and missing dependencies.
 
-    Returns
-    -------
-    sys_prop : `dict`
-        A dictionary containing the programs and versions installed on this
-        machine
-
+    Given a package and, optionally, a tuple of extras, identify any packages
+    which should be installed to match the requirements and return any which are
+    missing.
     """
-
-    try:
-        from sunpy.version import version as sunpy_version
-        from sunpy.version import githash as sunpy_git_description
-    except ImportError:
-        sunpy_version = 'Missing version.py; re-run setup.py'
-        sunpy_git_description = 'N/A'
-
-    # Dependencies
-    try:
-        from numpy import __version__ as numpy_version
-    except ImportError:
-        numpy_version = "NOT INSTALLED"
-
-    try:
-        from scipy import __version__ as scipy_version
-    except ImportError:
-        scipy_version = "NOT INSTALLED"
-
-    try:
-        from matplotlib import __version__ as matplotlib_version
-    except ImportError:
-        matplotlib_version = "NOT INSTALLED"
-
-    try:
-        from astropy import __version__ as astropy_version
-    except ImportError:
-        astropy_version = "NOT INSTALLED"
-
-    try:
-        from pandas import __version__ as pandas_version
-    except ImportError:
-        pandas_version = "NOT INSTALLED"
-
-    try:
-        from bs4 import __version__ as bs4_version
-    except ImportError:
-        bs4_version = "NOT INSTALLED"
-
-    try:
-        from PyQt4.QtCore import PYQT_VERSION_STR as pyqt_version
-    except ImportError:
-        pyqt_version = "NOT INSTALLED"
-
-    try:
-        from suds import __version__ as suds_version
-    except ImportError:
-        suds_version = "NOT INSTALLED"
-
-    try:
-        from sqlalchemy import __version__ as sqlalchemy_version
-    except ImportError:
-        sqlalchemy_version = "NOT INSTALLED"
-
-    try:
-        from requests import __version__ as requests_version
-    except ImportError:
-        requests_version = "NOT INSTALLED"
+    if not extras:
+        extras = tuple()
+    requires = get_distribution(package).requires(extras=extras)
+    installed_requirements = {}
+    missing_requirements = {}
+    for requirement in requires:
+        try:
+            package = get_distribution(requirement)
+            installed_requirements[package.project_name.lower()] = package.version
+        except Exception:
+            missing_requirements[requirement.name.lower()] = f"Missing, need {requirement}"
+    return missing_requirements, installed_requirements
 
 
+def missing_dependencies_by_extra(package="sunpy", exclude_extras=None):
+    """
+    Get all the specified extras for a package and report any missing dependencies.
 
-    sys_prop = {'Time':datetime.datetime.utcnow().strftime("%A, %d. %B %Y %I:%M%p UT"),
-                'System':platform.system(), 'Processor':platform.processor(),
-                'SunPy':sunpy_version, 'SunPy_git':sunpy_git_description,
-                'Arch':platform.architecture()[0], "Python":platform.python_version(),
-                'NumPy':numpy_version,
-                'SciPy':scipy_version, 'matplotlib':matplotlib_version,
-                'Astropy':astropy_version, 'Pandas':pandas_version,
-                'beautifulsoup':bs4_version, 'PyQt':pyqt_version,
-                'SUDS':suds_version, 'Sqlalchemy':sqlalchemy_version, 'Requests':requests_version
-                }
-    return sys_prop
+    This function will also return a "required" item in the dict which is the
+    dependencies associated with no extras.
+    """
+    exclude_extras = exclude_extras or []
+    distribution = get_distribution(package)
+    extras = distribution.extras
+    missing_dependencies = {"required": find_dependencies(package)[0]}
+    for extra in extras:
+        if extra in exclude_extras:
+            continue
+        missing_dependencies[extra] = find_dependencies(package, (extra,))[0]
+    return missing_dependencies
+
 
 def system_info():
     """
-    Takes dictionary from sys_info() and prints the contents in an attractive fashion.
-
+    Prints ones' system info in an "attractive" fashion.
     """
-    sys_prop = get_sys_dict()
+    base_reqs = get_distribution("sunpy").requires()
+    base_reqs = {base_req.name.lower() for base_req in base_reqs}
+    extra_reqs = get_distribution("sunpy").requires(extras=["all"])
+    extra_reqs = sorted({extra_req.name.lower() for extra_req in extra_reqs}.difference(base_reqs))
 
-# title
-    print("==========================================================")
-    print(" SunPy Installation Information\n")
-    print("==========================================================\n")
+    missing_packages, installed_packages = find_dependencies(package="sunpy", extras=["all"])
+    extra_prop = {"System": platform.system(),
+                  "Arch": f"{platform.architecture()[0]}, ({platform.processor()})",
+                  "Python": platform.python_version(),
+                  "sunpy": get_distribution("sunpy").version}
+    sys_prop = {**installed_packages, **missing_packages, **extra_prop}
 
-
-# general properties
-    print("###########")
-    print(" General")
-    print("###########")
-    # OS and architecture information
-
-    for sys_info in ['Time', 'System', 'Processor', 'Arch', 'SunPy', 'SunPy_git']:
-        print('{0} : {1}'.format(sys_info, sys_prop[sys_info]))
-
+    print("==============================")
+    print("sunpy Installation Information")
+    print("==============================")
+    print()
+    print("General")
+    print("#######")
     if sys_prop['System'] == "Linux":
-        distro = " ".join(platform.linux_distribution())
-        print("OS: {0} (Linux {1} {2})".format(distro, platform.release(), sys_prop['Processor']))
+        print(f"OS: {distro.name()} ({distro.version()}, Linux {platform.release()})")
     elif sys_prop['System'] == "Darwin":
-        print("OS: Mac OS X {0} ({1})".format(platform.mac_ver()[0], sys_prop['Processor']))
+        print(f"OS: Mac OS {platform.mac_ver()[0]}")
     elif sys_prop['System'] == "Windows":
-        print("OS: Windows {0} {1} ({2})".format(platform.release(),
-                                                 platform.version(), sys_prop['Processor']))
+        print(f"OS: Windows {platform.release()} {platform.version()}")
     else:
-        print("Unknown OS ({0})".format(sys_prop['Processor']))
-
-    print("\n")
-# required libraries
-    print("###########")
-    print(" Required Libraries ")
-    print("###########")
-
-    for sys_info in ['Python', 'NumPy', 'SciPy',
-              'matplotlib', 'Astropy', 'Pandas']:
-        print('{0}: {1}'.format(sys_info, sys_prop[sys_info]))
-
-    print("\n")
-
-# recommended
-    print("###########")
-    print(" Recommended Libraries ")
-    print("###########")
-
-    for sys_info in ['beautifulsoup', 'PyQt', 'SUDS',
-                     'Sqlalchemy', 'Requests']:
-        print('{0}: {1}'.format(sys_info, sys_prop[sys_info]))
+        print("Unknown OS")
+    for sys_info in ['Arch', 'sunpy']:
+        print(f'{sys_info}: {sys_prop[sys_info]}')
+    print(f'Installation path: {get_distribution("sunpy").location}')
+    print()
+    print("Required Dependencies")
+    print("#####################")
+    for req in base_reqs:
+        print(f'{req}: {sys_prop[req]}')
+    print()
+    print("Optional Dependencies")
+    print("#####################")
+    for extra_req in extra_reqs:
+        print(f'{extra_req}: {sys_prop[extra_req]}')

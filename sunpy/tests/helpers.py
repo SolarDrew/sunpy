@@ -1,44 +1,52 @@
-# -*- coding: utf-8 -*-
-# Lovingly borrowed from Astropy
-# Licensed under a 3-clause BSD style license - see licences/ASTROPY.rst
-
-import os
-import pathlib
+import sys
 import platform
 import warnings
+from pathlib import Path
+from functools import wraps
 
-import pytest
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import pkg_resources
+import pytest
 
-from astropy.utils.decorators import wraps
+import astropy
+from astropy.wcs.wcs import FITSFixedWarning
 
-from sunpy.tests import hash
+import sunpy.map
 
-__all__ = ['skip_windows', 'skip_glymur', 'skip_ana', 'warnings_as_errors']
+__all__ = ['skip_windows', 'skip_glymur', 'skip_ana', 'warnings_as_errors', 'asdf_entry_points']
 
-# SunPy's JPEG2000 capabilities rely on the glymur library.  First we check to
-# make sure that glymur imports correctly before proceeding.
+# SunPy's JPEG2000 capabilities rely on the glymur library.
+# First we check to make sure that glymur imports correctly before proceeding.
 try:
     import glymur
 except ImportError:
     SKIP_GLYMUR = True
 else:
     # See if we have a C backend
-    if any((glymur.lib.openjp2.OPENJP2, glymur.lib.openjpeg.OPENJPEG)):
+    if glymur.lib.openjp2.OPENJP2:
         SKIP_GLYMUR = False
     else:
         SKIP_GLYMUR = True
 
 try:
-    from sunpy.io import _pyana
+    from sunpy.io import _pyana  # NOQA
 except ImportError:
     SKIP_ANA = True
 else:
     SKIP_ANA = False
 
-skip_windows = pytest.mark.skipif(platform.system() == 'Windows', reason="Windows")
-skip_glymur = pytest.mark.skipif(SKIP_GLYMUR, reason="Glymur can not be imported")
-skip_ana = pytest.mark.skipif(SKIP_ANA, reason="ANA is not available")
+if sys.maxsize > 2**32:
+    SKIP_32 = False
+else:
+    SKIP_32 = True
+
+skip_windows = pytest.mark.skipif(platform.system() == 'Windows', reason="Windows.")
+skip_glymur = pytest.mark.skipif(SKIP_GLYMUR, reason="Glymur can not be imported.")
+skip_ana = pytest.mark.skipif(SKIP_ANA, reason="ANA is not available.")
+# Skip if the SunPy ASDF entry points are missing.
+asdf_entry_points = pytest.mark.skipif(not list(pkg_resources.iter_entry_points('asdf_extensions', 'sunpy')),
+                                       reason="No SunPy ASDF entry points.")
 
 
 @pytest.fixture
@@ -51,15 +59,27 @@ def warnings_as_errors(request):
 new_hash_library = {}
 
 
+def get_hash_library_name():
+    """
+    Generate the hash library name for this env.
+    """
+    import mpl_animators
+    version = mpl_animators.__version__
+    animators_version = "dev" if "+" in version else version.replace('.', '')
+    ft2_version = f"{mpl.ft2font.__freetype_version__.replace('.', '')}"
+    mpl_version = "dev" if "+" in mpl.__version__ else mpl.__version__.replace('.', '')
+    astropy_version = "dev" if "dev" in astropy.__version__ else astropy.__version__.replace('.', '')
+    return f"figure_hashes_mpl_{mpl_version}_ft_{ft2_version}_astropy_{astropy_version}_animators_{animators_version}.json"
+
+
 def figure_test(test_function):
     """
-    A decorator for a test that verifies the hash of the current figure or the returned figure,
-    with the name of the test function as the hash identifier in the library.
-    A PNG is also created in the 'result_image' directory, which is created
-    on the current path.
+    A decorator for a test that verifies the hash of the current figure or the
+    returned figure, with the name of the test function as the hash identifier
+    in the library. A PNG is also created in the 'result_image' directory,
+    which is created on the current path.
 
-    All such decorated tests are marked with `pytest.mark.figure` for
-    convenient filtering.
+    All such decorated tests are marked with `pytest.mark.mpl_image` for convenient filtering.
 
     Examples
     --------
@@ -67,116 +87,42 @@ def figure_test(test_function):
     def test_simple_plot():
         plt.plot([0,1])
     """
-    @pytest.mark.figure
+    hash_library_name = get_hash_library_name()
+    hash_library_file = Path(__file__).parent / hash_library_name
+
+    @pytest.mark.mpl_image_compare(hash_library=hash_library_file,
+                                   savefig_kwargs={'metadata': {'Software': None}},
+                                   style='default')
     @wraps(test_function)
+    def test_wrapper(*args, **kwargs):
+        ret = test_function(*args, **kwargs)
+        if ret is None:
+            ret = plt.gcf()
+        return ret
+    return test_wrapper
+
+
+def no_vso(f):
+    """
+    Disable the VSO client from returning results via Fido during this test.
+    """
+    from sunpy.net import Fido
+    from sunpy.net.vso import VSOClient
+
+    @wraps(f)
     def wrapper(*args, **kwargs):
-        if not os.path.exists(hash.HASH_LIBRARY_FILE):
-            pytest.xfail('Could not find a figure hash library at {}'.format(hash.HASH_LIBRARY_FILE))
-        if figure_base_dir is None:
-            pytest.xfail("No directory to save figures to found")
-
-        name = "{0}.{1}".format(test_function.__module__,
-                                test_function.__name__)
-        # Run the test function and get the figure
-        plt.figure()
-        fig = test_function(*args, **kwargs)
-        if fig is None:
-            fig = plt.gcf()
-
-        # Save the image that was generated
-        figure_base_dir.mkdir(exist_ok=True)
-        result_image_loc = figure_base_dir / '{}.png'.format(name)
-        plt.savefig(str(result_image_loc))
-        plt.close()
-
-        # Create hash
-        imgdata = open(result_image_loc, "rb")
-        figure_hash = hash._hash_file(imgdata)
-        imgdata.close()
-
-        new_hash_library[name] = figure_hash
-        if name not in hash.hash_library:
-            pytest.fail("Hash not present: {0}".format(name))
-
-        if hash.hash_library[name] != figure_hash:
-            raise RuntimeError('Figure hash does not match expected hash.\n'
-                               'New image generated and placed at {}'.format(result_image_loc))
+        Fido.registry[VSOClient] = lambda *args: False
+        res = f(*args, **kwargs)
+        Fido.registry[VSOClient] = VSOClient._can_handle_query
+        return res
 
     return wrapper
 
 
-# Skip coverage on this because we test it every time the CI runs --coverage!
-def _patch_coverage(testdir, sourcedir):  # pragma: no cover
-    """
-    This function is used by the ``setup.py test`` command to change the
-    filepath of the source code from the temporary directory setup.py installs
-    the code into to the actual directory setup.py was executed in.
-    """
-    import coverage
-
-    coveragerc = os.path.join(os.path.dirname(__file__), "coveragerc")
-
-    # Load the .coverage file output by pytest-cov
-    covfile = os.path.join(testdir, ".coverage")
-    cov = coverage.Coverage(covfile, config_file=coveragerc)
-    cov.load()
-    cov.get_data()
-
-    # Change the filename for the datafile to the new directory
-    if hasattr(cov, "_data_files"):
-        dfs = cov._data_files
-    else:
-        dfs = cov.data_files
-
-    dfs.filename = os.path.join(sourcedir, ".coverage")
-
-    # Replace the testdir with source dir
-    # Lovingly borrowed from astropy (see licences directory)
-    lines = cov.data._lines
-    for key in list(lines.keys()):
-        new_path = os.path.relpath(
-            os.path.realpath(key),
-            os.path.realpath(testdir))
-        new_path = os.path.abspath(
-            os.path.join(sourcedir, new_path))
-        lines[new_path] = lines.pop(key)
-
-    cov.save()
-
-
-html_intro = '''
-<head>
-<style>
-table, th, td {
-    border: 1px solid black;
-}
-</style>
-</head>
-<body>
-
-<h2>Image test comparison</h2>
-
-<table>
-  <tr>
-    <th>New image</th>
-    <th>Baseline image</th>
-    <th>Diff</th>
-  </tr>
-'''
-
-
-def generate_figure_webpage():
-    baseline_url = 'https://raw.githubusercontent.com/sunpy/sunpy-figure-tests/master/figures/'
-    html_file = figure_base_dir / 'fig_comparison.html'
-    with open(html_file, 'w') as f:
-        f.write(html_intro)
-        for fname in figure_base_dir.iterdir():
-            if fname.suffix == '.png':
-                html_block = ('<tr>'
-                              '<td>{}\n'.format(fname.stem) +
-                              '<img src="{}"></td>\n'.format(fname.name) +
-                              '<td><img src="{}"></td>\n'.format(baseline_url + fname.name) +
-                              '<td></td>'
-                              '</tr>\n\n')
-                f.write(html_block)
-        f.write('</table>')
+def fix_map_wcs(smap):
+    # Helper function to fix a WCS and silence the warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=FITSFixedWarning)
+        wcs = smap.wcs
+        wcs.fix()
+    return sunpy.map.Map(smap.data, wcs)

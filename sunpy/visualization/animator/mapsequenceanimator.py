@@ -1,53 +1,49 @@
-# -*- coding: utf-8 -*-
-
+"""
+This module provides a way to animate `~sunpy.map.MapSequence`.
+"""
 from copy import deepcopy
 
-from sunpy.visualization import animator as imageanimator
-from sunpy.visualization.wcsaxes_compat import _FORCE_NO_WCSAXES
-from sunpy.visualization import wcsaxes_compat, axis_labels_from_ctype
+from mpl_animators import BaseFuncAnimator
+
+from sunpy.visualization import axis_labels_from_ctype, wcsaxes_compat
 
 __all__ = ['MapSequenceAnimator']
 
 
-class MapSequenceAnimator(imageanimator.BaseFuncAnimator):
+class MapSequenceAnimator(BaseFuncAnimator):
     """
-    Create an interactive viewer for a MapSequence
+    Create an interactive viewer for a `~sunpy.map.MapSequence`.
 
     The following keyboard shortcuts are defined in the viewer:
 
-    - 'left': previous step on active slider
-    - 'right': next step on active slider
-    - 'top': change the active slider up one
-    - 'bottom': change the active slider down one
-    - 'p': play/pause active slider
+    * 'left': previous step on active slider.
+    * 'right': next step on active slider.
+    * 'top': change the active slider up one.
+    * 'bottom': change the active slider down one.
+    * 'p': play/pause active slider.
 
     Parameters
     ----------
     mapsequence : `sunpy.map.MapSequence`
-        A MapSequence
-
+        A `~sunpy.map.MapSequence`.
     annotate : `bool`
-        Annotate the figure with scale and titles
-
-    fig : `matplotlib.figure`
-        Figure to use
-
+        Annotate the figure with scale and titles.
+    fig : `matplotlib.figure.Figure`
+        Figure to use.
     interval : `int`
-        Animation interval in ms
-
+        Animation interval in milliseconds.
     colorbar : `bool`
-        Plot colorbar
-
-    plot_function : function
-        A function to call when each map is plotted, the function must have
-        the signature `(fig, axes, smap)` where fig and axes are the figure and
-        axes objects of the plot and smap is the current frames Map object.
-        Any objects returned from this function will have their `remove()` method
+        Plot colorbar.
+    plot_function : `function`
+        A function to call when each `~sunpy.map.Map` is plotted, the function must have
+        the signature ``(fig, axes, smap)`` where ``fig`` and ``axes`` are the figure and
+        axes objects of the plot and ``smap`` is the current frame's `~sunpy.map.Map` object.
+        Any objects returned from this function will have their ``remove()`` method
         called at the start of the next frame to clear them from the plot.
 
     Notes
     -----
-    Extra keywords are passed to `mapsequence[0].plot()` i.e. the `plot()` routine of
+    Extra keywords are passed to ``mapsequence[0].plot()`` i.e. the ``plot()`` routine of
     the maps in the sequence.
     """
 
@@ -62,8 +58,7 @@ class MapSequenceAnimator(imageanimator.BaseFuncAnimator):
         slider_functions = [self.updatefig]
         slider_ranges = [[0, len(mapsequence.maps)]]
 
-        imageanimator.BaseFuncAnimator.__init__(
-            self, mapsequence.maps, slider_functions, slider_ranges, **kwargs)
+        super().__init__(mapsequence.maps, slider_functions, slider_ranges, **kwargs)
 
         if annotate:
             self._annotate_plot(0)
@@ -77,18 +72,11 @@ class MapSequenceAnimator(imageanimator.BaseFuncAnimator):
         i = int(val)
         im.set_array(self.data[i].data)
         im.set_cmap(self.mapsequence[i].plot_settings['cmap'])
-
         norm = deepcopy(self.mapsequence[i].plot_settings['norm'])
-        # The following explicit call is for bugged versions of Astropy's ImageNormalize
-        norm.autoscale_None(self.data[i].data)
         im.set_norm(norm)
 
         if wcsaxes_compat.is_wcsaxes(im.axes):
             im.axes.reset_wcs(self.mapsequence[i].wcs)
-            wcsaxes_compat.default_wcs_ticks(im.axes,
-                                             self.mapsequence[i].spatial_units,
-                                             self.mapsequence[i].coordinate_system)
-
         # Having this line in means the plot will resize for non-homogenous
         # maps. However it also means that if you zoom in on the plot bad
         # things happen.
@@ -103,7 +91,7 @@ class MapSequenceAnimator(imageanimator.BaseFuncAnimator):
         """
         Annotate the image.
 
-        This may overwrite some stuff in `GenericMap.plot()`
+        This may overwrite some stuff in `sunpy.map.GenericMap.plot`
         """
         # Normal plot
         self.axes.set_title("{s.name}".format(s=self.data[ind]))
@@ -113,14 +101,12 @@ class MapSequenceAnimator(imageanimator.BaseFuncAnimator):
         self.axes.set_ylabel(axis_labels_from_ctype(self.data[ind].coordinate_system[1],
                                                     self.data[ind].spatial_units[1]))
 
-    def _get_main_axes(self):
+    def _setup_main_axes(self):
         """
-        Create an axes which is wcsaxes if we have that...
+        Create an axes which is a `~astropy.visualization.wcsaxes.WCSAxes`.
         """
-        if not _FORCE_NO_WCSAXES:
-            return self.fig.add_subplot(111, projection=self.mapsequence[0].wcs)
-        else:
-            return self.fig.add_subplot(111)
+        if self.axes is None:
+            self.axes = self.fig.add_subplot(111, projection=self.mapsequence[0].wcs)
 
     def plot_start_image(self, ax):
         im = self.mapsequence[0].plot(

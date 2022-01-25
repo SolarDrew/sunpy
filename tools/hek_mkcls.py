@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Author: Florian Mayer <florian.mayer@bitsrc.org>
 #
 # This module was developed with funding provided by
@@ -18,24 +17,20 @@ joined together so that only one query is sent to the query. They may not
 be ANDed together because an event cannot be of multiple types.
 
 Events also have attributes which are _StringParamAttrWrapper, that means that
-they overload the Python operators for strings and return a _ParamAttr for
-them. _ParamAttrs are used to specify the values of parameters of the event.
-So, AR.NumSpots == 1 returns a _ParamAttr that when encountered in a query
+they overload the Python operators for strings and return a AttrComparison for
+them. AttrComparison are used to specify the values of parameters of the event.
+So, AR.NumSpots == 1 returns a AttrComparison that when encountered in a query
 sets the GET parameters in a way that only active regions with only one spot
 are returned. _StringParamAttrWrapper support <, <= ,>, >=, ==, != and like.
-_ComparisonParamAttrWrapper support all the operations mentioned above
+ComparisonParamAttrWrapper support all the operations mentioned above
 barring like.
 """
 
 # XXX: Maybe split into three modules and import them all into one so
 # we do not need a template but generate one module in its entirety.
 
-from __future__ import absolute_import
-
-import shutil
-import sys
 import os
-
+import sys
 from collections import defaultdict
 
 EVENTS = [
@@ -241,34 +236,40 @@ fields = {
     'WavelUnit': '_StringParamAttrWrapper'
 }
 
+
 def mk_gen(rest):
     """ Generate Misc class. """
     ret = ''
-    ret += '@apply\nclass Misc(object):\n'
+    ret += '@_makeinstance\nclass Misc:\n'
     for elem in sorted(rest):
-        ret += '    %s = %s(%r)\n' %(elem, fields[elem], elem)
+        ret += '    {} = {}({!r})\n'.format(elem, fields[elem], elem)
     return ret
+
 
 def mk_cls(key, used, pad=1, nokeys=True, init=True, name=None, base='EventType'):
     if name is None:
         name = key
 
     keys = sorted(
-        [(k, v) for k, v in fields.iteritems() if k.startswith(key)]
+        [(k, v) for k, v in fields.items() if k.startswith(key)]
     )
-    used.update(set([k for k, v in keys]))
+    used.update({k for k, v in keys})
     if not keys:
         if not nokeys:
             raise ValueError
-        return '%s = EventType(%r)' % (key, name.lower())
+        return f'{key} = EventType({name.lower()!r})'
     ret = ''
-    ret += '@apply\nclass %s(%s):\n' % (name, base)
+    if base != 'object':
+        ret += f'@_makeinstance\nclass {name}({base}):\n'
+    else:
+        ret += '@_makeinstance\nclass %s:\n' % name
     for k, v in keys:
-        ret += '    %s = %s(%r)\n' % (k[len(key) + pad:], v, k)
+        ret += '    {} = {}({!r})\n'.format(k[len(key) + pad:], v, k)
     if init:
-        ret += '''    def __init__(self):
-        EventType.__init__(self, %r)''' % name.lower()
+        ret += '''\n    def __init__(self):
+        super().__init__(%r)''' % name.lower()
     return ret
+
 
 if __name__ == '__main__':
     BUFFER = 4096
@@ -298,8 +299,8 @@ if __name__ == '__main__':
         fd.write(buf)
 
     fd.write('\n\n')
-    fd.write('\n\n'.join(mk_cls(evt, used, name=NAMES[evt]) for evt in EVENTS))
-    fd.write('\n\n')
+    fd.write('\n\n\n'.join(mk_cls(evt, used, name=NAMES[evt]) for evt in EVENTS))
+    fd.write('\n\n\n')
     fd.write('\n\n'.join(mk_cls(evt, used, 0, 0, 0, NAMES[evt], 'object') for evt in OTHER_NOPAD))
     fd.write('\n\n')
     fd.write('\n\n'.join(mk_cls(evt, used, 1, 0, 0, NAMES[evt], 'object') for evt in OTHER))

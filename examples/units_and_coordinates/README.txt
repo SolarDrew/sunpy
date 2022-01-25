@@ -1,6 +1,5 @@
-.. _units_and_coordinates_examples:
+Coordinates, times, and units
+=============================
 
-.. _units_and_coordinates-examples-index:
-
-Units and Coordinates
-=====================
+This section contains any examples which showcasse how sunpy handles coordinate
+information, times, and scientific units.

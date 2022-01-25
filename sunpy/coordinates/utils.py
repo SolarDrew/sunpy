@@ -1,23 +1,25 @@
-#
-# Calculates the co-ordinates along great arcs between two specified points
-# which are assumed to be on disk.
-#
-from __future__ import absolute_import, division, print_function
+"""
+Miscellaneous utilities related to coordinates
+"""
 
 import numpy as np
 
 import astropy.units as u
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import BaseCoordinateFrame, SkyCoord
 
-from sunpy.coordinates import frames
+from sunpy.coordinates import Heliocentric, HeliographicStonyhurst, get_body_heliographic_stonyhurst
+from sunpy.sun import constants
 
-__all__ = ['GreatArc']
+__all__ = ['GreatArc', 'get_rectangle_coordinates', 'solar_angle_equivalency', 'get_limb_coordinates']
 
 
-class GreatArc(object):
+class GreatArc:
     """
     Calculate the properties of a great arc at user-specified points between a
     start and end point on a sphere.
+
+    The coordinates of the great arc are returned with the observation time
+    and coordinate frame of the starting point of the arc.
 
     Parameters
     ----------
@@ -30,7 +32,7 @@ class GreatArc(object):
     center : `~astropy.coordinates.SkyCoord`
         Center of the sphere.
 
-    points : `None`, `int`, `~numpy.ndarray`
+    points : `None`, `int`, `numpy.ndarray`
         Number of points along the great arc.  If None, the arc is calculated
         at 100 equally spaced points from start to end.  If int, the arc is
         calculated at "points" equally spaced points from start to end.  If a
@@ -43,11 +45,11 @@ class GreatArc(object):
 
     Methods
     -------
-    inner_angles : `~astropy.units.rad`
-        Radian angles of the points along the great arc from the start to end
+    inner_angles : `~astropy.units.Quantity`
+        Angles of the points along the great arc from the start to end
         co-ordinate.
 
-    distances : `~astropy.units`
+    distances : `~astropy.units.Quantity`
         Distances of the points along the great arc from the start to end
         co-ordinate.  The units are defined as those returned after transforming
         the co-ordinate system of the start co-ordinate into its Cartesian
@@ -82,11 +84,21 @@ class GreatArc(object):
     """
 
     def __init__(self, start, end, center=None, points=None):
+
+        # Observer
+        self.observer = start.observer
+
+        # Co-ordinate frame of the starting point
+        self.start_frame = start.frame
+
+        # Observation time
+        self.obstime = start.obstime
+
         # Start point of the great arc
-        self.start = start
+        self.start = start.transform_to(Heliocentric)
 
         # End point of the great arc
-        self.end = end
+        self.end = end.transform_to(self.start_frame).transform_to(Heliocentric)
 
         # Parameterized location of points between the start and the end of the
         # great arc.
@@ -101,24 +113,23 @@ class GreatArc(object):
         self.default_points = self._points_handler(points)
 
         # Units of the start point
-        self.distance_unit = self.start.transform_to(frames.Heliocentric).cartesian.xyz.unit
-
-        # Co-ordinate frame
-        self.start_frame = self.start.frame
-
-        # Observer
-        self.observer = self.start.observer
+        self.distance_unit = self.start.cartesian.xyz.unit
 
         # Set the center of the sphere
         if center is None:
             self.center = SkyCoord(0 * self.distance_unit,
                                    0 * self.distance_unit,
-                                   0 * self.distance_unit, frame=frames.Heliocentric)
+                                   0 * self.distance_unit,
+                                   obstime=self.obstime,
+                                   observer=self.observer,
+                                   frame=Heliocentric)
+        else:
+            self.center = center.transform_to(self.start_frame).transform_to(Heliocentric)
 
         # Convert the start, end and center points to their Cartesian values
-        self.start_cartesian = self.start.transform_to(frames.Heliocentric).cartesian.xyz.to(self.distance_unit).value
-        self.end_cartesian = self.end.transform_to(frames.Heliocentric).cartesian.xyz.to(self.distance_unit).value
-        self.center_cartesian = self.center.transform_to(frames.Heliocentric).cartesian.xyz.to(self.distance_unit).value
+        self.start_cartesian = self.start.cartesian.xyz.to(self.distance_unit).value
+        self.end_cartesian = self.end.cartesian.xyz.to(self.distance_unit).value
+        self.center_cartesian = self.center.cartesian.xyz.to(self.distance_unit).value
 
         # Great arc properties calculation
         # Vector from center to first point
@@ -169,7 +180,7 @@ class GreatArc(object):
 
         Parameters
         ----------
-        points : `None`, `int`, `~numpy.ndarray`
+        points : `None`, `int`, `numpy.ndarray`
             If None, use the default locations of parameterized points along the
             arc.  If int, the arc is calculated at "points" equally spaced
             points from start to end.  If a numpy.ndarray is passed, it must be
@@ -180,8 +191,8 @@ class GreatArc(object):
 
         Returns
         -------
-        inner_angles : `~astropy.units.rad`
-            Radian angles of the points along the great arc from the start to
+        inner_angles : `~astropy.units.Quantity`
+            Angles of the points along the great arc from the start to
             end co-ordinate.
 
         """
@@ -195,7 +206,7 @@ class GreatArc(object):
 
         Parameters
         ----------
-        points : `None`, `int`, `~numpy.ndarray`
+        points : `None`, `int`, `numpy.ndarray`
             If None, use the default locations of parameterized points along the
             arc.  If int, the arc is calculated at "points" equally spaced
             points from start to end.  If a numpy.ndarray is passed, it must be
@@ -222,7 +233,7 @@ class GreatArc(object):
 
         Parameters
         ----------
-        points : `None`, `int`, `~numpy.ndarray`
+        points : `None`, `int`, `numpy.ndarray`
             If None, use the default locations of parameterized points along the
             arc.  If int, the arc is calculated at "points" equally spaced
             points from start to end.  If a numpy.ndarray is passed, it must be
@@ -251,4 +262,211 @@ class GreatArc(object):
         return SkyCoord(great_arc_points_cartesian[:, 0],
                         great_arc_points_cartesian[:, 1],
                         great_arc_points_cartesian[:, 2],
-                        frame=frames.Heliocentric, observer=self.observer).transform_to(self.start_frame)
+                        obstime=self.obstime,
+                        observer=self.observer,
+                        frame=Heliocentric).transform_to(self.start_frame)
+
+
+@u.quantity_input
+def get_rectangle_coordinates(bottom_left, *, top_right=None,
+                              width: u.deg = None, height: u.deg = None):
+    """
+    Specify a rectangular region of interest in longitude and latitude in a given coordinate frame.
+
+    Parameters
+    ----------
+    bottom_left : `~astropy.coordinates.BaseCoordinateFrame` or `~astropy.coordinates.SkyCoord`
+        The bottom-left coordinate of the rectangle. Supports passing both the
+        bottom left and top right coordinates by passing with a shape of ``(2,)``.
+    top_right : `~astropy.coordinates.BaseCoordinateFrame` or `~astropy.coordinates.SkyCoord`
+        The top-right coordinate of the rectangle.
+        If in a different frame than ``bottom_left`` and all required metadata
+        for frame conversion is present, ``top_right`` will be transformed to
+        ``bottom_left`` frame.
+    width : `~astropy.units.Quantity`
+        The width of the rectangle.
+        Must be omitted if the coordinates of both corners have been specified.
+    height : `~astropy.units.Quantity`
+        The height of the rectangle.
+        Must be omitted if the coordinates of both corners have been specified.
+
+    Returns
+    -------
+    `~astropy.coordinates.BaseCoordinateFrame` or `~astropy.coordinates.SkyCoord`
+        The bottom left coordinate of the rectangular region of interest.
+    `~astropy.coordinates.BaseCoordinateFrame` or `~astropy.coordinates.SkyCoord`
+        The top right coordinate of the rectangular region of interest.
+
+    Examples
+    --------
+    >>> import astropy.units as u
+    >>> from astropy.coordinates import SkyCoord
+    >>> from sunpy.coordinates.frames import HeliographicStonyhurst
+    >>> from sunpy.coordinates.utils import get_rectangle_coordinates
+
+    >>> # With bottom left as a SkyCoord, width and height
+    >>> bottom_left = SkyCoord(0 * u.arcsec, 0 * u.arcsec, frame='heliographic_stonyhurst')
+    >>> width = 10 * u.arcsec
+    >>> height = 10 * u.arcsec
+    >>> bottom_left, top_right = get_rectangle_coordinates(bottom_left, width=width, height=height)
+
+    >>> # With bottom left of shape (2,)
+    >>> bottom_left_vector = SkyCoord([0 * u.arcsec, 10 * u.arcsec], [0 * u.arcsec, 10 * u.arcsec], frame='heliographic_stonyhurst')
+    >>> bottom_left, top_right = get_rectangle_coordinates(bottom_left_vector)
+
+    >>> # With bottom left as a BaseCoordinateFrame instance, width and height
+    >>> bottom_left =  HeliographicStonyhurst(0 * u.arcsec, 0 * u.arcsec)
+    >>> width = 10 * u.arcsec
+    >>> height = 10 * u.arcsec
+    >>> bottom_left, top_right = get_rectangle_coordinates(bottom_left, width=width, height=height)
+
+    Notes
+    -----
+    ``width`` is always treated as an increase in longitude, but ``bottom_left`` may have a higher
+    value of longitude than ``top_right`` due to the wrapping of the longitude angle.  Appropriate
+    care should be taken when using this function's output to define a range of longitudes.
+
+    ``height`` is always treated as an increase in latitude, but this function does not enforce
+    that ``bottom_left`` has a lower value of latitude than ``top_right``, in case that orientation
+    is valid for the intended use.
+    """
+    if not (hasattr(bottom_left, 'transform_to') and
+            hasattr(bottom_left, 'shape') and
+            hasattr(bottom_left, 'spherical')):
+        raise TypeError(
+            "Invalid input, bottom_left must be of type SkyCoord or BaseCoordinateFrame.")
+
+    if (top_right is not None and not ((hasattr(top_right, 'transform_to') and
+                                        hasattr(top_right, 'shape') and
+                                        hasattr(top_right, 'spherical')))):
+        raise TypeError("Invalid input, top_right must be of type SkyCoord or BaseCoordinateFrame.")
+
+    if bottom_left.shape == (2,) and any((x is not None for x in (width, height, top_right))):
+        raise ValueError("Invalid input, if bottom_left.shape == (2,) "
+                         "other parameters should not be passed.")
+
+    if all(x is not None for x in (width, height, top_right)):
+        raise ValueError("Invalid input, width, height and top_right "
+                         "parameters should not be passed simultaneously.")
+
+    if top_right is None and bottom_left.shape != (2,) and (width is None or height is None):
+        raise ValueError("Invalid input, either bottom_left and top_right "
+                         "or bottom_left and height and width should be provided.")
+
+    if width is not None:
+        if width < 0*u.deg:
+            raise ValueError("The specified width cannot be negative.")
+        if width > 360*u.deg:
+            raise ValueError("The specified width cannot be greater than 360 degrees.")
+
+    if height is not None:
+        if height < 0*u.deg:
+            raise ValueError("The specified height cannot be negative.")
+        if bottom_left.spherical.lat + height > 90*u.deg:
+            raise ValueError("The specified height exceeds the maximum latitude.")
+
+    if bottom_left.shape == (2,):
+        top_right = bottom_left[1]
+        bottom_left = bottom_left[0]
+
+    elif top_right is not None:
+        top_right = top_right.transform_to(bottom_left)
+
+    else:
+        # If bottom left is a ``SkyCoord``, top right is constructed
+        # as a SkyCoord using width and height. If bottom left is a
+        # ``frame``, the top right is typecasted to its respective
+        # frame. This is done to ensure that the output coordinates
+        # are of the same type.
+        top_right = SkyCoord(bottom_left.spherical.lon + width,
+                             bottom_left.spherical.lat + height,
+                             frame=bottom_left)
+
+        if isinstance(bottom_left, BaseCoordinateFrame):
+            top_right = top_right.frame
+
+    return bottom_left, top_right
+
+
+def solar_angle_equivalency(observer):
+    """
+    Return the equivalency to convert between a physical distance on the Sun
+    and an angular separation as seen by a specified observer.
+
+    .. note::
+        This equivalency assumes that the physical distance is perpendicular to
+        the Sun-observer line.  That is, the tangent of the angular separation
+        is equal to the ratio of the physical distance to the Sun-observer
+        distance.  For large physical distances, a different assumption may be
+        more appropriate.
+
+    Parameters
+    ----------
+    observer : `~astropy.coordinates.SkyCoord`
+        Observer location for which the equivalency is calculated.
+
+    Returns
+    -------
+    equiv : equivalency function that can be used as keyword ``equivalencies`` for astropy unit conversion.
+
+    Examples
+    --------
+    >>> import astropy.units as u
+    >>> from sunpy.coordinates import get_body_heliographic_stonyhurst
+    >>> earth_observer = get_body_heliographic_stonyhurst("earth", "2013-10-28")
+    >>> distance_in_km = 725*u.km
+    >>> distance_in_km.to(u.arcsec, equivalencies=solar_angle_equivalency(earth_observer))
+    INFO: Apparent body location accounts for 495.82 seconds of light travel time [sunpy.coordinates.ephemeris]
+    <Quantity 1.00603718 arcsec>
+    """
+
+    if not isinstance(observer, (SkyCoord, BaseCoordinateFrame)):
+        raise TypeError(
+            "Invalid input, observer must be of type SkyCoord or BaseCoordinateFrame.")
+    if observer.obstime is None:
+        raise ValueError(
+            "Observer must have an observation time, `obstime`.")
+
+    obstime = observer.obstime
+    sun_coord = get_body_heliographic_stonyhurst("sun", time=obstime, observer=observer)
+    sun_observer_distance = sun_coord.separation_3d(observer).to_value(u.m)
+
+    equiv = [(u.radian,
+              u.meter,
+              lambda x: np.tan(x)*sun_observer_distance,
+              lambda x: np.arctan(x/sun_observer_distance))]
+
+    return equiv
+
+
+@u.quantity_input
+def get_limb_coordinates(observer, rsun: u.m = constants.radius, resolution=1000):
+    """
+    Get coordinates for the solar limb as viewed by a specified observer.
+
+    Parameters
+    ----------
+    observer : `~astropy.coordinates.SkyCoord`
+        Observer coordinate.
+    rsun : `~astropy.units.Quantity`
+        Physical radius of the limb from Sun center. Defaults to the standard
+        photospheric radius.
+    resolution : int
+        Number of coordinates to return. The coordinates are equally spaced
+        around the limb as seen from the observer.
+    """
+    observer = observer.transform_to(
+        HeliographicStonyhurst(obstime=observer.obstime))
+    dsun = observer.radius
+    if dsun <= rsun:
+        raise ValueError('Observer distance must be greater than rsun')
+    # Create the limb coordinate array using Heliocentric Radial
+    limb_radial_distance = np.sqrt(dsun**2 - rsun**2)
+    limb_hcr_rho = limb_radial_distance * rsun / dsun
+    limb_hcr_z = dsun - np.sqrt(limb_radial_distance**2 - limb_hcr_rho**2)
+    limb_hcr_psi = np.linspace(0, 2*np.pi, resolution+1)[:-1] << u.rad
+    limb = SkyCoord(limb_hcr_rho, limb_hcr_psi, limb_hcr_z,
+                    representation_type='cylindrical',
+                    frame='heliocentric',
+                    observer=observer, obstime=observer.obstime)
+    return limb

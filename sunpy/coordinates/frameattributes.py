@@ -1,16 +1,10 @@
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import, division
-
 import datetime
-import warnings
 
 import astropy.units as u
+from astropy.coordinates import BaseCoordinateFrame, CoordinateAttribute, SkyCoord, TimeAttribute
 from astropy.time import Time
-from astropy.coordinates import TimeAttribute, CoordinateAttribute, get_body_barycentric, ICRS
 
-from sunpy.extern import six
 from sunpy.time import parse_time
-from sunpy.util.exceptions import SunpyUserWarning
 
 __all__ = ['TimeFrameAttributeSunPy', 'ObserverCoordinateAttribute']
 
@@ -59,24 +53,24 @@ class TimeFrameAttributeSunPy(TimeAttribute):
         if value is None:
             return None, False
 
-        elif value == 'now':
-            return Time(datetime.datetime.now()), True
-
         elif isinstance(value, Time):
             out = value
             converted = False
 
-        elif isinstance(value, six.string_types):
+        elif isinstance(value, str):
+            if value == 'now':
+                return Time(datetime.datetime.now()), True
+
             try:
                 out = Time(parse_time(value))
             except Exception as err:
-                raise ValueError('Invalid time input {0}={1!r}\n{2}'.format(self.name, value, err))
+                raise ValueError(f'Invalid time input {self.name}={value!r}\n{err}')
             converted = True
         else:
             try:
                 out = Time(value)
             except Exception as err:
-                raise ValueError('Invalid time input {0}={1!r}\n{2}'.format(self.name, value, err))
+                raise ValueError(f'Invalid time input {self.name}={value!r}\n{err}')
             converted = True
 
         return out, converted
@@ -105,10 +99,18 @@ class ObserverCoordinateAttribute(CoordinateAttribute):
 
     def convert_input(self, value):
         # Keep string here.
-        if isinstance(value, six.string_types):
+        if isinstance(value, str):
             return value, False
         else:
-            return super(ObserverCoordinateAttribute, self).convert_input(value)
+            # Make sure that the coordinate is 3D
+            if hasattr(value, 'make_3d'):
+                value = value.make_3d()
+
+            # Upgrade the coordinate to a `SkyCoord` so that frame attributes will be merged
+            if isinstance(value, BaseCoordinateFrame) and not isinstance(value, self._frame):
+                value = SkyCoord(value)
+
+            return super().convert_input(value)
 
     def _convert_string_to_coord(self, out, obstime):
         """
@@ -117,7 +119,6 @@ class ObserverCoordinateAttribute(CoordinateAttribute):
         """
 
         # Import here to prevent circular import
-        from .frames import HeliographicStonyhurst
         from .ephemeris import get_body_heliographic_stonyhurst
 
         obscoord = get_body_heliographic_stonyhurst(out, obstime)
@@ -132,20 +133,17 @@ class ObserverCoordinateAttribute(CoordinateAttribute):
     def __get__(self, instance, frame_cls=None):
         # If instance is None then we can't get obstime so it doesn't matter.
         if instance is not None:
-            # Get observer if the instance has one, or the default.
-            observer = getattr(instance, '_' + self.name, self.default)
-
-            # We have an instance of a frame, so get obstime
-            obstime = getattr(instance, 'obstime', None)
+            observer = getattr(instance, '_' + self.name)
+            obstime = getattr(instance, 'obstime', None)  # TODO: Why is this `None` needed?
 
             # If the observer is a string and we have obstime then calculate
             # the position of the observer.
-            if isinstance(observer, six.string_types):
-                if obstime is not None:
+            if isinstance(observer, str):
+                if observer != "self" and obstime is not None:
                     new_observer = self._convert_string_to_coord(observer.lower(), obstime)
                     new_observer.object_name = observer
                     setattr(instance, '_' + self.name, new_observer)
                 else:
                     return observer
 
-        return super(ObserverCoordinateAttribute, self).__get__(instance, frame_cls=frame_cls)
+        return super().__get__(instance, frame_cls=frame_cls)

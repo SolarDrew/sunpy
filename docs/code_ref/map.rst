@@ -1,8 +1,7 @@
 .. _map:
 
-=========
-SunPy map
-=========
+Maps (`sunpy.map`)
+******************
 
 .. module:: sunpy.map
 
@@ -13,13 +12,13 @@ SunPy map
 .. currentmodule:: sunpy.map
 
 Overview
---------
-One of core classes in SunPy is a Map. A SunPy Map object is simply a
+========
+One of core classes in sunpy is a Map. A sunpy Map object is simply a
 spatially-aware data array, often an image. In order to make it easy to work
-with image data in SunPy, the Map object provides a number of methods for
+with image data in sunpy, the Map object provides a number of methods for
 commonly performed operations.
 
-2D map objects are subclasses of `~sunpy.map.MapBase` and all Map objects are
+2D map objects are subclasses of `~sunpy.map.GenericMap` and these objects are
 created using the Map factory `~sunpy.map.Map`.
 
 A number of instrument are supported by subclassing this base object. See
@@ -33,8 +32,8 @@ available. See :ref:`map-classes`.
 
 
 Creating Map Objects
---------------------
-SunPy Map objects are constructed using the special factory
+====================
+sunpy Map objects are constructed using the special factory
 class `~sunpy.map.Map`: ::
 
     >>> x = sunpy.map.Map('file.fits')  # doctest: +SKIP
@@ -45,54 +44,55 @@ e.g. `~sunpy.map.sources.sdo.AIAMap` or `~sunpy.map.sources.soho.LASCOMap`
 (see :ref:`map-classes` to see a list of all of them), or if no
 instrument matches, a 2D map `~sunpy.map.mapbase.GenericMap`.
 
+Fixing map metadata
+-------------------
+
+If you need to fix the metadata of a fits file before it is handed to `Map`, this can be done as
+follows:
+
+    >>> data, header = sunpy.io.fits.read(filepath)[0] # doctest: +SKIP
+    >>> header['cunit1'] = 'arcsec' # doctest: +SKIP
+    >>> header['cunit2'] = 'arcsec' # doctest: +SKIP
+    >>> map = sunpy.map.Map(data, header) # doctest: +SKIP
+
 
 .. autoclass:: sunpy.map.map_factory.MapFactory
 
-
-Using Map Objects
------------------
-
-Once a map object has been created using `~sunpy.map.Map` it will be a instance
-or a subclass of the `~sunpy.map.mapbase.GenericMap` class. Irrespective of
-the instrument the map is constructed for, all maps behave the same and are
-interchangeable with one another. It is possible to manipulate the map or access
-meta data about the map from the methods and properties of the map class.
-The following documentation of `~sunpy.map.mapbase.GenericMap` lists the
-attributes and methods that are available on all Map objects.
-
-.. autoclass:: sunpy.map.mapbase.GenericMap
-   :members:
-
 .. _map-classes:
 
-Map Classes
------------
-Defined in `sunpy.map.sources` are a set of `~sunpy.map.GenericMap` subclasses
-which convert the specific metadata and other differences in each instruments
-data to the standard `~sunpy.map.GenericMap` interface.
-These 'sources' also define things like the colormap and default
-normalisation for each instrument.
-These subclasses also provide a method, which describes to the `Map <sunpy.map.map_factory.MapFactory>` factory
-which data and metadata pairs match its instrument.
+sunpy.map Package
+=================
+
+All sunpy Maps are derived from `sunpy.map.GenericMap`, all the methods and attributes are documented in that class.
 
 .. automodapi:: sunpy.map
     :no-main-docstr:
-    :no-heading:
+    :inherited-members:
+    :include-all-objects:
 
 .. _map-sources:
 
 Instrument Map Classes
-----------------------
+======================
+Defined in ``sunpy.map.sources`` are a set of `~sunpy.map.GenericMap` subclasses
+which convert the specific metadata and other differences in each instruments
+data to the standard `~sunpy.map.GenericMap` interface.
+These 'sources' also define things like the colormap and default
+normalisation for each instrument.
+These subclasses also provide a method, which describes to the `~sunpy.map.Map` factory
+which data and metadata pairs match its instrument.
 
 .. automodapi:: sunpy.map.sources
+    :no-main-docstr:
+    :inherited-members:
 
 
 Writing a new Instrument Map Class
-----------------------------------
+==================================
 
 Any subclass of `~sunpy.map.GenericMap` which defines a method named
-`~sunpy.map.GenericMap.is_datasource_for` will automatically be registered with
-the `Map <sunpy.map.map_factory.MapFactory>` factory. The ``is_datasource_for`` method describes the form of the
+``is_datasource_for`` will automatically be registered with
+the `~sunpy.map.Map` factory. The ``is_datasource_for`` method describes the form of the
 data and metadata for which the `~sunpy.map.GenericMap` subclass is valid. For
 example it might check the value of the ``INSTRUMENT`` key in the metadata
 dictionary.
@@ -117,10 +117,10 @@ demonstrated by the following example.
        @classmethod
        def is_datasource_for(cls, data, header, **kwargs):
             """Determines if header corresponds to an AIA image"""
-            return header.get('instrume', '').startswith('FUTURESCOPE')
+            return str(header.get('instrume', '')).startswith('FUTURESCOPE')
 
 
-This class will now be available through the `Map <sunpy.map.map_factory.MapFactory>` factory as long as this
+This class will now be available through the `~sunpy.map.Map` factory as long as this
 class has been defined, i.e. imported into the current session.
 
 If you do not want to create a method named ``is_datasource_for`` you can

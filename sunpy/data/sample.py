@@ -1,22 +1,37 @@
-# -*- coding: utf-8 -*-
 """
-SunPy sample data files
+This module provides the following sample data files.  These files are
+downloaded when this module is imported for the first time.  See
+:ref:`sphx_glr_generated_gallery_acquiring_data_2011_06_07_sampledata_overview.py`
+for plots of some of these files.
 
-The following files are available in this submodule:
+.. list-table::
+   :widths: auto
+   :header-rows: 1
 
+   * - Variable name
+     - Name of downloaded file
 """
-from __future__ import absolute_import
-
 import sys
-from ._sample import _base_urls, _sample_files, get_sample_file
+from pathlib import Path
 
-file_list = []
+from ._sample import _SAMPLE_FILES, download_sample_data
+
+files = download_sample_data()
+
 file_dict = {}
-for _key in _sample_files:
-    f = get_sample_file(_sample_files[_key], _base_urls)
-    setattr(sys.modules[__name__], _key, f)
-    file_list.append(f)
-    file_dict.update({_key: f})
-    __doc__ += '* ``{}``\n'.format(_key)
+for f in files:
+    name = Path(f).name
+    _key = _SAMPLE_FILES.get(name, None)
+    if _key:
+        setattr(sys.modules[__name__], _key, str(f))
+        file_dict.update({_key: f})
 
-__all__ = list(_sample_files.keys()) + ['file_dict', 'file_list']
+# Sort the entries in the dictionary
+file_dict = dict(sorted(file_dict.items()))
+
+file_list = file_dict.values()
+
+for keyname, filename in file_dict.items():
+    __doc__ += f'   * - ``{keyname}``\n     - {Path(filename).name}\n'
+
+__all__ = list(_SAMPLE_FILES.values()) + ['file_dict', 'file_list']

@@ -1,18 +1,20 @@
-# -*- coding: utf-8 -*-
-
-import datetime
 
 import pytest
 
 import astropy.units as u
-from astropy.time import Time
+from astropy.coordinates import ICRS, HeliocentricMeanEcliptic, get_body_barycentric
 from astropy.tests.helper import assert_quantity_allclose
-from astropy.coordinates import ICRS, get_body_barycentric
+from astropy.time import Time
 
+from sunpy.coordinates import frames, get_earth
+from sunpy.coordinates.frameattributes import ObserverCoordinateAttribute, TimeFrameAttributeSunPy
+from sunpy.coordinates.frames import (
+    HeliocentricInertial,
+    HeliographicCarrington,
+    HeliographicStonyhurst,
+    Helioprojective,
+)
 from sunpy.time import parse_time
-from ..frames import Helioprojective, HeliographicStonyhurst
-from ..frameattributes import TimeFrameAttributeSunPy, ObserverCoordinateAttribute
-from sunpy.coordinates import get_earth, frames
 
 
 @pytest.fixture
@@ -20,8 +22,13 @@ def attr():
     return TimeFrameAttributeSunPy()
 
 
+@pytest.fixture
+def oca():
+    return ObserverCoordinateAttribute(HeliographicStonyhurst)
+
+
 def test_now(attr):
-    """ We can't actually test the value independantly """
+    """ We can't actually test the value independently """
     result, converted = attr.convert_input('now')
 
     assert isinstance(result, Time)
@@ -29,7 +36,7 @@ def test_now(attr):
 
 
 def test_none(attr):
-    """ We can't actually test the value independantly """
+    """ We can't actually test the value independently """
     result, converted = attr.convert_input(None)
 
     assert result is None
@@ -61,7 +68,7 @@ def test_on_frame(input):
 
 
 def test_non_string():
-    output = datetime.datetime.now()
+    output = parse_time('now')
 
     hpc1 = Helioprojective(obstime=output)
 
@@ -82,10 +89,7 @@ def test_on_frame_error2():
 # ObserverCoordinateAttribute
 
 
-def test_string_coord():
-
-    oca = ObserverCoordinateAttribute(HeliographicStonyhurst)
-
+def test_string_coord(oca):
     obstime = "2011-01-01"
     coord = oca._convert_string_to_coord("earth", obstime)
 
@@ -94,11 +98,29 @@ def test_string_coord():
     assert coord.obstime == parse_time(obstime)
 
 
+def test_observer_not_hgs_sunpy(oca):
+    observer = HeliocentricInertial(0*u.deg, 0*u.deg, 1*u.AU, obstime='2001-01-01')
+    result, converted = oca.convert_input(observer)
+
+    assert isinstance(result, HeliographicStonyhurst)
+    assert result.obstime == observer.obstime
+    assert converted
+
+
+def test_observer_not_hgs_astropy(oca):
+    observer = HeliocentricMeanEcliptic(0*u.deg, 0*u.deg, 1*u.AU, obstime='2001-01-01')
+    result, converted = oca.convert_input(observer)
+
+    assert isinstance(result, HeliographicStonyhurst)
+    assert result.obstime == observer.obstime
+    assert converted
+
+
 def test_coord_get():
 
     # Test default (instance=None)
     obs = Helioprojective.observer
-    assert obs is "earth"
+    assert obs is None
 
     # Test get
     obstime = "2013-04-01"
@@ -115,7 +137,7 @@ def test_coord_get():
 
     # Test get
     obstime = "2013-04-01"
-    obs = Helioprojective(obstime=obstime).observer
+    obs = Helioprojective(observer="earth", obstime=obstime).observer
     earth = get_earth(obstime)
     assert isinstance(obs, HeliographicStonyhurst)
     assert_quantity_allclose(obs.lon, earth.lon)
@@ -138,20 +160,27 @@ def test_coord_get():
     assert str(obs) == "<HeliographicStonyhurst Coordinate for 'mars'>"
 
 
+def test_observer_self_get():
+    hgc_noobstime = HeliographicCarrington(observer="self")
+    assert hgc_noobstime.observer == "self"
+
+    hgc_obstime = HeliographicCarrington(observer="self", obstime="2001-01-01")
+    assert hgc_obstime.observer == "self"
+
+
 def test_default_hcc_observer():
     h = frames.Heliocentric()
-    assert h.observer is "earth"
+    assert h.observer is None
 
     h = frames.Heliocentric(observer="mars")
-    assert h.observer is "mars"
+    assert h.observer == "mars"
 
 
 def test_obstime_hack():
     """
     Test that the obstime can be updated in place, this is used in the transform pipeline.
     """
-    h = frames.Heliocentric()
-    assert h.observer is "earth"
+    h = frames.Heliocentric(observer="earth")
 
     obstime = "2011-01-01"
     h._obstime = obstime
@@ -164,23 +193,3 @@ def test_obstime_hack():
     assert_quantity_allclose(obs.lon, earth.lon)
     assert_quantity_allclose(obs.lat, earth.lat)
     assert_quantity_allclose(obs.radius, earth.radius)
-
-
-"""
-These two tests are to make sure that during the transformation stack the value
-of observer is correctly calculated.
-"""
-
-
-def test_default_observer_transform_hcc():
-    center = frames.HeliographicStonyhurst(0 * u.deg, 0 * u.deg, obstime="2017-07-11 15:00")
-    hpc = center.transform_to(frames.Heliocentric(obstime="2017-07-11 15:00"))
-
-    assert_quantity_allclose(hpc.y, -48471.1283979 * u.km)
-
-
-def test_default_observer_transform_hpc():
-    center = frames.HeliographicStonyhurst(0 * u.deg, 0 * u.deg, obstime="2017-07-11 15:00")
-    hpc = center.transform_to(frames.Helioprojective(obstime="2017-07-11 15:00"))
-
-    assert_quantity_allclose(hpc.Ty, -66.04425197 * u.arcsec)

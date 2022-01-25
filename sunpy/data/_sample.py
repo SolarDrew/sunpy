@@ -1,27 +1,14 @@
-# -*- coding: utf-8 -*-
-"""SunPy sample data files"""
-from __future__ import absolute_import, division, print_function
+import os
+from pathlib import Path
+from urllib.parse import urljoin
 
-import os.path
-import socket
-import warnings
-from zipfile import ZipFile
-from shutil import move
+from sunpy import log
+from sunpy.util.config import _is_writable_dir, get_and_create_sample_dir
+from sunpy.util.parfive_helpers import Downloader
 
-from astropy.utils.data import download_file
-
-from sunpy.extern import six
-
-from sunpy.util.net import url_exists
-from sunpy.util.config import get_and_create_sample_dir
-from sunpy import config
-
-__author__ = "Steven Christe"
-__email__ = "steven.christe@nasa.gov"
-
-_base_urls = (
+_BASE_URLS = (
+    'https://github.com/sunpy/sample-data/raw/master/sunpy/v1/',
     'http://data.sunpy.org/sunpy/v1/',
-    'https://github.com/sunpy/sample-data/raw/master/sunpy/v1/'
 )
 
 # Shortcut requirements:
@@ -33,7 +20,10 @@ _base_urls = (
 # All separated by underscores
 
 # the files should include necessary extensions
-_sample_files = {
+_SAMPLE_DATA = {
+    # Do roll image first because it's the largest file.
+    "AIA_171_ROLL_IMAGE": "aiacalibim5.fits.gz",
+    "HMI_LOS_IMAGE": "HMI20110607_063211_los_lowres.fits",
     "AIA_131_IMAGE": "AIA20110607_063301_0131_lowres.fits",
     "AIA_171_IMAGE": "AIA20110607_063302_0171_lowres.fits",
     "AIA_211_IMAGE": "AIA20110607_063302_0211_lowres.fits",
@@ -49,113 +39,103 @@ _sample_files = {
     "EIT_195_IMAGE": "eit_l1_20110607_203753.fits",
     "RHESSI_IMAGE": "hsi_image_20110607_063300.fits",
     "CALLISTO_SPECTRUM": "BIR_20110607_062400_10.fit",
-    # Not in the sample-data repo
-    # "RHESSI_EVENT_LIST": "hsi_calib_ev_20020220_1106_20020220_1106_25_40.fits",
     "SWAP_LEVEL1_IMAGE": "swap_lv1_20110607_063329.fits",
-    "AIA_171_ROLL_IMAGE": "aiacalibim5.fits.gz",
     "EVE_TIMESERIES": "20110607_EVE_L0CS_DIODES_1m.txt",
-    # Uncomment this if it needs to be used. Commented out to save bandwidth.
-    # "LYRA_LIGHTCURVE": ("lyra_20110810-000000_lev2_std.fits.gz", ,
     "LYRA_LEVEL3_TIMESERIES": "lyra_20110607-000000_lev3_std.fits",
     "GOES_XRS_TIMESERIES": "go1520110607.fits",
     "GBM_TIMESERIES": "glg_cspec_n5_110607_v00.pha",
-    "NOAAINDICES_TIMESERIES": "swpc_solar_cycle_indices.txt",
-    "NOAAPREDICT_TIMESERIES": "predicted-sunspot-radio-flux.txt",
     "RHESSI_TIMESERIES": "hsi_obssumm_20110607_025.fits",
-    "NORH_TIMESERIES": "tca110607.fits"
+    "NORH_TIMESERIES": "tca110607.fits",
+    "LOFAR_IMAGE": "LOFAR_70MHZ_20190409_131136.fits",
+    "SRS_TABLE": "20110607SRS.txt",
 }
 
-# Creating the directory for sample files to be downloaded
-sampledata_dir = get_and_create_sample_dir()
+# Reverse the dict because we want to use it backwards, but it is nicer to
+# write the other way around
+_SAMPLE_FILES = {v: k for k, v in _SAMPLE_DATA.items()}
 
 
-def download_sample_data(show_progress=True):
+def _download_sample_data(base_url, sample_files, overwrite):
+    """
+    Downloads a list of files.
+
+    Parameters
+    ----------
+    base_url : str
+        Base URL for each file.
+    sample_files : list of tuples
+        List of tuples that are (URL_NAME, SAVE_NAME).
+    overwrite : bool
+        Will overwrite a file on disk if True.
+
+    Returns
+    -------
+    `parfive.Results`
+        Download results. Will behave like a list of files.
+    """
+    dl = Downloader(overwrite=overwrite, progress=True, headers={'Accept-Encoding': 'identity'})
+    for url_file_name, fname in sample_files:
+        url = urljoin(base_url, url_file_name)
+        dl.enqueue_file(url, filename=fname)
+    results = dl.download()
+    return results
+
+
+def _retry_sample_data(results):
+    # In case we have a broken file on disk, overwrite it.
+    dl = Downloader(overwrite=True, progress=True, headers={'Accept-Encoding': 'identity'})
+    for err in results.errors:
+        file_name = err.filepath_partial().name
+        log.debug(
+            f"Failed to download {_SAMPLE_FILES[file_name]} from {err.url}: {err.exception}")
+        # Update the url to a mirror and requeue the file.
+        new_url = urljoin(_BASE_URLS[1], file_name)
+        log.debug(f"Attempting redownload of {_SAMPLE_FILES[file_name]} using {new_url}")
+        dl.enqueue_file(new_url, filename=err.filepath_partial)
+    extra_results = dl.download()
+    for err in extra_results.errors:
+        file_name = err.filepath_partial().name
+        log.debug(f"Failed to download {_SAMPLE_FILES[file_name]} from {err.url}: {err.exception}"
+                  )
+        log.error(
+            f"Failed to download {_SAMPLE_FILES[file_name]} from all mirrors,"
+            "the file will not be available."
+        )
+    return results + extra_results
+
+
+def download_sample_data(overwrite=False):
     """
     Download all sample data at once. This will overwrite any existing files.
 
     Parameters
     ----------
-    show_progress: `bool`
-        Show a progress bar during download
-
-    Returns
-    -------
-    None
+    overwrite : `bool`
+        Overwrite existing sample data.
     """
-    for file_name in six.itervalues(_sample_files):
-        get_sample_file(file_name, show_progress=show_progress,
-                        url_list=_base_urls, overwrite=True)
-
-
-def get_sample_file(filename, url_list, show_progress=True, overwrite=False,
-                    timeout=None):
-    """
-    Downloads a sample file. Will download  a sample data file and move it to
-    the sample data directory. Also, uncompresses zip files if necessary.
-    Returns the local file if exists.
-
-    Parameters
-    ----------
-    filename: `str`
-        Name of the file
-    url_list: `str` or `list`
-        urls where to look for the file
-    show_progress: `bool`
-        Show a progress bar during download
-    overwrite: `bool`
-        If True download and overwrite an existing file.
-    timeout: `float`
-        The timeout in seconds. If `None` the default timeout is used from
-        `astropy.utils.data.Conf.remote_timeout`.
-
-    Returns
-    -------
-    result: `str`
-        The local path of the file. None if it failed.
-    """
-
-    if filename[-3:] == 'zip':
-        uncompressed_filename = filename[:-4]
+    # Workaround for tox only. This is not supported as a user option
+    sampledata_dir = os.environ.get("SUNPY_SAMPLEDIR", False)
+    if sampledata_dir:
+        sampledata_dir = Path(sampledata_dir).expanduser().resolve()
+        _is_writable_dir(sampledata_dir)
     else:
-        uncompressed_filename = filename
-    # check if the (uncompressed) file exists
-    if not overwrite and os.path.isfile(os.path.join(sampledata_dir,
-                                                     uncompressed_filename)):
-        return os.path.join(sampledata_dir, uncompressed_filename)
+        # Creating the directory for sample files to be downloaded
+        sampledata_dir = Path(get_and_create_sample_dir())
+    already_downloaded = []
+    to_download = []
+    for url_file_name in _SAMPLE_FILES.keys():
+        fname = sampledata_dir/url_file_name
+        # We want to avoid calling download if we already have all the files.
+        if fname.exists() and not overwrite:
+            already_downloaded.append(fname)
+        else:
+            # URL and Filename pairs
+            to_download.append((url_file_name, fname))
+    if to_download:
+        results = _download_sample_data(_BASE_URLS[0], to_download, overwrite=overwrite)
     else:
-        # check each provided url to find the file
-        for base_url in url_list:
-            online_filename = filename
-            if base_url.count('github'):
-                online_filename += '?raw=true'
-            try:
-                url = six.moves.urllib_parse.urljoin(base_url, online_filename)
-                exists = url_exists(url)
-                if exists:
-                    f = download_file(os.path.join(base_url, online_filename),
-                                      show_progress=show_progress,
-                                      timeout=timeout)
-                    real_name, ext = os.path.splitext(f)
-
-                    if ext == '.zip':
-                        print("Unpacking: {}".format(real_name))
-                        with ZipFile(f, 'r') as zip_file:
-                            unzipped_f = zip_file.extract(real_name,
-                                                          sampledata_dir)
-                        os.remove(f)
-                        move(unzipped_f, os.path.join(sampledata_dir,
-                                                      uncompressed_filename))
-                        return os.path.join(sampledata_dir,
-                                            uncompressed_filename)
-                    else:
-                        # move files to the data directory
-                        move(f, os.path.join(sampledata_dir,
-                                             uncompressed_filename))
-                        return os.path.join(sampledata_dir,
-                                            uncompressed_filename)
-            except (socket.error, socket.timeout) as e:
-                warnings.warn("Download failed with error {}. \n"
-                              "Retrying with different mirror.".format(e))
-        # if reach here then file has not been downloaded.
-        warnings.warn("File {} not found.".format(filename))
-        return None
+        return already_downloaded
+    # Something went wrong.
+    if results.errors:
+        results = _retry_sample_data(results)
+    return results + already_downloaded

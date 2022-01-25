@@ -1,19 +1,16 @@
 """Yohkoh SXT Map subclass definitions"""
-from __future__ import absolute_import, division, absolute_import
-#pylint: disable=W0221,W0222,E1101,E1121
 
 __author__ = "Jack Ireland"
 __email__ = "jack.ireland@nasa.gov"
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 from astropy.visualization import PowerStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
 
 from sunpy.map import GenericMap
-from sunpy.sun import constants
 from sunpy.map.sources.source_type import source_stretch
+from sunpy.sun import constants
 
 __all__ = ['SXTMap']
 
@@ -43,13 +40,26 @@ class SXTMap(GenericMap):
     """
 
     def __init__(self, data, header, **kwargs):
+        super().__init__(data, header, **kwargs)
 
-        GenericMap.__init__(self, data, header, **kwargs)
+        self.plot_settings['cmap'] = 'yohkohsxt' + self.measurement[0:2].lower()
+        self.plot_settings['norm'] = ImageNormalize(
+            stretch=source_stretch(self.meta, PowerStretch(0.5)), clip=False)
 
-        self.meta['detector'] = "SXT"
-        self.meta['telescop'] = "Yohkoh"
-        self.plot_settings['cmap'] = plt.get_cmap(name='yohkohsxt' + self.measurement[0:2].lower())
-        self.plot_settings['norm'] = ImageNormalize(stretch=source_stretch(self.meta, PowerStretch(0.5)))
+    @property
+    def observatory(self):
+        return "Yohkoh"
+
+    @property
+    def detector(self):
+        return "SXT"
+
+    @property
+    def dsun(self):
+        """
+        For Yohkoh Maps, DSUN_OBS is not always defined. In this case the
+        SOLAR_R keyword is used to calculate dsun.
+        """
 
         # 2012/12/19 - the SXT headers do not have a value of the distance from
         # the spacecraft to the center of the Sun.  The FITS keyword 'DSUN_OBS'
@@ -58,27 +68,27 @@ class SXTMap(GenericMap):
         # use simple trigonometry to calculate the distance of the center of
         # the Sun from the spacecraft.  Note that the small angle approximation
         # is used, and the solar radius stored in SXT FITS files is in arcseconds.
-        self.meta['dsun_apparent'] = constants.au
-        if 'solar_r' in self.meta:
-            self.meta['dsun_apparent'] = constants.radius/(np.deg2rad(self.meta['solar_r']/3600.0))
 
-    @property
-    def dsun(self):
-        """ For Yohkoh Maps, dsun_obs is not always defined. Uses approximation
-        defined above it is not defined."""
-        return self.meta.get('dsun_obs', self.meta['dsun_apparent'])
+        if 'solar_r' in self.meta:
+            dsun = constants.radius / (np.deg2rad(self.meta['solar_r'] / 3600.0))
+        else:
+            dsun = constants.au
+        return self.meta.get('dsun_obs', dsun)
 
     @property
     def measurement(self):
-        """
-        Returns the type of data observed.
-        """
         s = self.meta.get('wavelnth', '')
         if s == 'Al.1':
             s = 'Al01'
         elif s.lower() == 'open':
             s = 'white-light'
         return s
+
+    @property
+    def wavelength(self):
+        """
+        Returns `None`, as SXT is a broadband imager.
+        """
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):

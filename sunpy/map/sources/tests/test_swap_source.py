@@ -8,12 +8,15 @@ import glob
 
 import pytest
 
-from sunpy.map.sources.proba2 import SWAPMap
-from sunpy.map import Map
+import astropy.units as u
+
 import sunpy.data.test
+from sunpy.map import Map
+from sunpy.map.sources.proba2 import SWAPMap
 
 path = sunpy.data.test.rootdir
 fitslist = glob.glob(os.path.join(path, "SWAP", "*"))
+
 
 @pytest.fixture(scope="module", params=fitslist)
 def createSWAP(request):
@@ -21,9 +24,12 @@ def createSWAP(request):
     return Map(request.param)
 
 # SWAP Tests
+
+
 def test_fitstoSWAP(createSWAP):
     """Tests the creation of SWAPMap using FITS."""
     assert isinstance(createSWAP, SWAPMap)
+
 
 def test_is_datasource_for(createSWAP):
     """Test the is_datasource_for method of SWAPMap.
@@ -31,10 +37,17 @@ def test_is_datasource_for(createSWAP):
     can be a MetaDict object."""
     assert createSWAP.is_datasource_for(createSWAP.data, createSWAP.meta)
 
+
 def test_observatory(createSWAP):
     """Tests the observatory property of the SWAPMap object."""
     assert createSWAP.observatory == "PROBA2"
 
+
 def test_measurement(createSWAP):
     """Tests the measurement property of the SWAPMap object."""
     assert createSWAP.measurement.value == 174
+
+
+def test_wcs(createSWAP):
+    # Smoke test that WCS is valid and can transform from pixels to world coordinates
+    createSWAP.pixel_to_world(0*u.pix, 0*u.pix)

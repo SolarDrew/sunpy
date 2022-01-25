@@ -1,19 +1,16 @@
 """SDO Map subclass definitions"""
-from __future__ import absolute_import, print_function, division
-#pylint: disable=W0221,W0222,E1101,E1121
 
-__author__ = "Keith Hughitt"
-__email__ = "keith.hughitt@nasa.gov"
+import numpy as np
 
-import matplotlib.pyplot as plt
-
-from astropy.visualization.mpl_normalize import ImageNormalize
+import astropy.units as u
+from astropy.coordinates import CartesianRepresentation, HeliocentricMeanEcliptic
 from astropy.visualization import AsinhStretch
+from astropy.visualization.mpl_normalize import ImageNormalize
 
-from sunpy.map import GenericMap
+from sunpy.map.mapbase import GenericMap, SpatialPair
 from sunpy.map.sources.source_type import source_stretch
 
-__all__ = ['AIAMap', 'HMIMap']
+__all__ = ['AIAMap', 'HMIMap', 'HMISynopticMap']
 
 
 class AIAMap(GenericMap):
@@ -27,12 +24,19 @@ class AIAMap(GenericMap):
     the Sun in the following seven extreme ultraviolet bandpasses: 94 A
     (Fe XVIII), 131 A (Fe VIII, XXI), 171 A (Fe IX), 193 A (Fe XII, XXIV),
     211 A (Fe XIV), 304 A (He II), 335 A (Fe XVI). One telescope observes
-    in the visible 1600 A (C IV) and the nearby continuun (1700 A).
+    in the visible 1600 A (C IV) and the nearby continuum (1700 A).
+
+    Notes
+    -----
+    Observer location: The standard AIA FITS header provides the spacecraft location in multiple
+    coordinate systems, including Heliocentric Aries Ecliptic (HAE) and Heliographic Stonyhurst
+    (HGS).  SunPy uses the provided HAE coordinates due to accuracy concerns with the provided
+    HGS coordinates, but other software packages may make different choices.
 
     References
     ----------
     * `SDO Mission Page <https://sdo.gsfc.nasa.gov/>`_
-    * `Instrument Page <http://aia.lmsal.com>`_
+    * `Instrument Page <https://aia.lmsal.com>`_
     * `Fits Header keywords <http://jsoc.stanford.edu/doc/keywords/AIA/AIA02840_A_AIA-SDO_FITS_Keyword_Documents.pdf>`_
     * `Analysis Guide <https://www.lmsal.com/sdodocs/doc/dcur/SDOD0060.zip/zip/entry/>`_
     * `Instrument Paper <https://doi.org/10.1007/s11207-011-9776-8>`_
@@ -40,26 +44,47 @@ class AIAMap(GenericMap):
     """
 
     def __init__(self, data, header, **kwargs):
-
-        GenericMap.__init__(self, data, header, **kwargs)
+        super().__init__(data, header, **kwargs)
 
         # Fill in some missing info
-        self.meta['detector'] = "AIA"
         self._nickname = self.detector
-        self.plot_settings['cmap'] = plt.get_cmap(self._get_cmap_name())
-        self.plot_settings['norm'] = ImageNormalize(stretch=source_stretch(self.meta, AsinhStretch(0.01)))
+        self.plot_settings['cmap'] = self._get_cmap_name()
+        self.plot_settings['norm'] = ImageNormalize(
+            stretch=source_stretch(self.meta, AsinhStretch(0.01)), clip=False)
+
+    @property
+    def _supported_observer_coordinates(self):
+        return [(('haex_obs', 'haey_obs', 'haez_obs'), {'x': self.meta.get('haex_obs'),
+                                                        'y': self.meta.get('haey_obs'),
+                                                        'z': self.meta.get('haez_obs'),
+                                                        'unit': u.m,
+                                                        'representation_type': CartesianRepresentation,
+                                                        'frame': HeliocentricMeanEcliptic})
+                ] + super()._supported_observer_coordinates
 
     @property
     def observatory(self):
         """
         Returns the observatory.
         """
-        return self.meta['telescop'].split('/')[0]
+        return self.meta.get('telescop', '').split('/')[0]
+
+    @property
+    def detector(self):
+        return self.meta.get("detector", "AIA")
+
+    @property
+    def unit(self):
+        unit_str = self.meta.get('bunit', self.meta.get('pixlunit'))
+        if unit_str is None:
+            return
+
+        return self._parse_fits_unit(unit_str)
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Determines if header corresponds to an AIA image"""
-        return header.get('instrume', '').startswith('AIA')
+        return str(header.get('instrume', '')).startswith('AIA')
 
 
 class HMIMap(GenericMap):
@@ -80,13 +105,9 @@ class HMIMap(GenericMap):
     * `Instrument Page <http://hmi.stanford.edu>`_
     * `Analysis Guide <http://hmi.stanford.edu/doc/magnetic/guide.pdf>`_
     """
+
     def __init__(self, data, header, **kwargs):
-
-        GenericMap.__init__(self, data, header, **kwargs)
-
-        self.meta['detector'] = "HMI"
-#        self.meta['instrme'] = "HMI"
-#        self.meta['obsrvtry'] = "SDO"
+        super().__init__(data, header, **kwargs)
         self._nickname = self.detector
 
     @property
@@ -94,16 +115,95 @@ class HMIMap(GenericMap):
         """
         Returns the measurement type.
         """
-        return self.meta['content'].split(" ")[0].lower()
+        return self.meta.get('content', '').split(" ")[0].lower()
 
     @property
     def observatory(self):
         """
         Returns the observatory.
         """
-        return self.meta['telescop'].split('/')[0]
+        return self.meta.get('telescop', '').split('/')[0]
+
+    @property
+    def detector(self):
+        return self.meta.get("detector", "HMI")
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Determines if header corresponds to an HMI image"""
-        return header.get('instrume', '').startswith('HMI')
+        return (str(header.get('TELESCOP', '')).endswith('HMI') and
+                not HMISynopticMap.is_datasource_for(data, header))
+
+
+class HMISynopticMap(HMIMap):
+    """
+    SDO/HMI Synoptic Map.
+
+    Synoptic maps are constructed from HMI 720s line-of-sight magnetograms
+    collected over a 27-day solar rotation.
+
+    See `~sunpy.map.sources.sdo.HMIMap` for information on the HMI instrument.
+
+    References
+    ----------
+    * `SDO Mission Page <https://sdo.gsfc.nasa.gov/>`__
+    * `JSOC's HMI Synoptic Charts <http://jsoc.stanford.edu/HMI/LOS_Synoptic_charts.html>`__
+    """
+    def __init__(self, data, header, **kwargs):
+        super().__init__(data, header, **kwargs)
+        self.plot_settings['cmap'] = 'hmimag'
+        self.plot_settings['norm'] = ImageNormalize(vmin=-1.5e3, vmax=1.5e3)
+
+    @property
+    def spatial_units(self):
+        cunit1 = self.meta['cunit1']
+        if cunit1 == 'Degree':
+            cunit1 = 'deg'
+
+        cunit2 = self.meta['cunit2']
+        if cunit2 == 'Sine Latitude':
+            cunit2 = 'deg'
+
+        return SpatialPair(u.Unit(cunit1), u.Unit(cunit2))
+
+    @property
+    def scale(self):
+        if self.meta['cunit2'] == 'Sine Latitude':
+            # Since, this map uses the cylindrical equal-area (CEA) projection,
+            # the spacing should be modified to 180/pi times the original value
+            # Reference: Section 5.5, Thompson 2006
+            return SpatialPair(np.abs(self.meta['cdelt1']) * self.spatial_units[0] / u.pixel,
+                               180 / np.pi * self.meta['cdelt2'] * u.deg / u.pixel)
+
+        return super().scale
+
+    @property
+    def date(self):
+        """
+        Image observation time.
+
+        This is taken from the 'DATE-OBS' or 'T_OBS' keywords.
+        """
+        date = self._get_date('DATE-OBS')
+        if date is None:
+            return self._get_date('T_OBS')
+        else:
+            return date
+
+    @property
+    def unit(self):
+        unit_str = self.meta.get('bunit', None)
+        if unit_str == 'Mx/cm^2':
+            # Maxwells aren't in the IAU unit sytle manual, so replace with Gauss
+            return u.Unit('G')
+        else:
+            return super().unit
+
+    @classmethod
+    def is_datasource_for(cls, data, header, **kwargs):
+        """
+        Determines if header corresponds to an HMI synoptic map.
+        """
+        return (str(header.get('TELESCOP', '')).endswith('HMI') and
+                str(header.get('CONTENT', '')) ==
+                'Carrington Synoptic Chart Of Br Field')

@@ -1,20 +1,10 @@
 """Hinode XRT and SOT Map subclass definitions"""
-from __future__ import absolute_import, print_function, division
-#pylint: disable=W0221,W0222,E1101,E1121
+from sunpy.map import GenericMap
 
 __author__ = ["Jack Ireland, Jose Ivan Campos-Rozo, David Perez-Suarez"]
 __email__ = "jack.ireland@nasa.gov"
 
-import matplotlib.pyplot as plt
-
-from sunpy.map import GenericMap
-
 __all__ = ['XRTMap', 'SOTMap']
-
-# the following values comes from xrt_prep.pro
-# search for saturation in
-# http://darts.jaxa.jp/pub/ssw/hinode/xrt/idl/util/xrt_prep.pro
-# SATURATION_LIMIT = 2500
 
 
 def _lower_list(l):
@@ -46,32 +36,38 @@ class XRTMap(GenericMap):
                                   "Be_thick", "Gband", "Ti_poly"]
 
     def __init__(self, data, header, **kwargs):
-
-        GenericMap.__init__(self, data, header, **kwargs)
-
-        # converting data array to masked array
-        # self.data = ma.masked_where(self.data > SATURATION_LIMIT, self.data)
+        super().__init__(data, header, **kwargs)
 
         fw1 = header.get('EC_FW1_')
         if fw1.lower() not in _lower_list(self.filter_wheel1_measurements):
             raise ValueError('Unpexpected filter wheel 1 in header.')
-        fw1 = fw1.replace("_", " ")
 
         fw2 = header.get('EC_FW2_')
         if fw2.lower() not in _lower_list(self.filter_wheel2_measurements):
             raise ValueError('Unpexpected filter wheel 2 in header.')
-        fw2 = fw2.replace("_", " ")
 
-        self.meta['detector'] = "XRT"
-#        self.meta['instrume'] = "XRT"
-        self.meta['telescop'] = "Hinode"
-        self.plot_settings['cmap'] = plt.get_cmap(name='hinodexrt')
+        self.plot_settings['cmap'] = 'hinodexrt'
+
+    @property
+    def _timesys(self):
+        if self.meta.get('timesys', '').upper() == 'UTC (TBR)':
+            return 'UTC'
+        else:
+            return super()._timesys
+
+    @property
+    def detector(self):
+        return "XRT"
+
+    @property
+    def observatory(self):
+        return "Hinode"
 
     @property
     def measurement(self):
         fw1 = self.meta.get('EC_FW1_').replace("_", " ")
         fw2 = self.meta.get('EC_FW2_').replace("_", " ")
-        return "{0}-{1}".format(fw1, fw2)
+        return f"{fw1}-{fw2}"
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
@@ -114,10 +110,7 @@ class SOTMap(GenericMap):
                         'FG shutterless Stokes', 'SP IQUV 4D array']
 
     def __init__(self, data, header, **kwargs):
-        GenericMap.__init__(self, data, header, **kwargs)
-
-        self.meta['detector'] = "SOT"
-        self.meta['telescop'] = "Hinode"
+        super().__init__(data, header, **kwargs)
         self._nickname = self.detector
 
         # TODO (add other options, Now all threated as intensity. This follows
@@ -131,7 +124,15 @@ class SOTMap(GenericMap):
                  'SOT/SP': 'intensity',  # For the 1st 2 dimensions
                  }
 
-        self.plot_settings['cmap'] = plt.get_cmap('hinodesot' + color[self.instrument])
+        self.plot_settings['cmap'] = 'hinodesot' + color[self.instrument]
+
+    @property
+    def detector(self):
+        return "XRT"
+
+    @property
+    def observatory(self):
+        return "Hinode"
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):

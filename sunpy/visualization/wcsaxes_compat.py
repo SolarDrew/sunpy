@@ -1,77 +1,62 @@
-# -*- coding: utf-8 -*-
 """
-Helpers and Functions to make WCSAxes work in SunPy
+This module provides functions to make WCSAxes work in SunPy.
 """
 import matplotlib.pyplot as plt
 
 import astropy.units as u
+from astropy.visualization import wcsaxes
 
-try:
-    from astropy.visualization import wcsaxes
-except ImportError:
-    raise ImportError("Astropy >= 1.3 is required to use SunPy")
+from sunpy.coordinates import HeliographicStonyhurst
 
-#  Force is put here to enable disabling all checks in this module. It should
-#  only be used by tests and other such hacks.
-_FORCE_NO_WCSAXES = False
-
-__all__ = ['is_wcsaxes']
+__all__ = ["is_wcsaxes", "gca_wcs", "get_world_transform",
+           "default_wcs_grid", "wcsaxes_heliographic_overlay"]
 
 
 def is_wcsaxes(axes):
     """
-    Test a matplotlib Axes object to see if it is an instance of WCSAxes.
+    Tests a `matplotlib.axes.Axes` object to see if it is an instance of
+    `~astropy.visualization.wcsaxes.WCSAxes`.
 
     Parameters
     ----------
-    axes : `matplotlib.axes` Object
-        Axes to test
+    axes : `matplotlib.axes`
+        Axes to test.
 
     Returns
     -------
-    result : `bool`
-        Result of the test
+    `bool`
+        Result of the test.
     """
-
-    if not _FORCE_NO_WCSAXES:
-        return isinstance(axes, wcsaxes.WCSAxes)
-    else:
-        return False
+    return isinstance(axes, wcsaxes.WCSAxes)
 
 
 def gca_wcs(wcs, fig=None, slices=None):
     """
-    Get the current axes, and return a WCSAxes if possible.
+    Get the current axes, or create a new `~astropy.visualization.wcsaxes.WCSAxes`
+    if ``fig`` has no axes.
 
     Parameters
     ----------
     wcs : `astropy.wcs.WCS`
         A `~astropy.wcs.WCS` object used to create a new axes.
     fig : `matplotlib.figure.Figure`
-        The figure in which to check for the axes.
+        The figure in which to check for the axes. If ``None``, the current
+        figure is used (or a new one created if there are no current figures).
     slices : `tuple`
-        ``slices`` is passed to `~astropy.visualization.wcsaxes.WCSAxes`
-        to describe which two dimensions of the `~astropy.wcs.WCS` object
-        are being plotted.
-        This slices the multidimensional wcs object in the way it needs
-        to be sliced.
+        ``slices`` is passed to `~astropy.visualization.wcsaxes.WCSAxes` to describe
+        which two dimensions of the `~astropy.wcs.WCS` object are being plotted.
+        This slices the multidimensional wcs object in the way it needs to be sliced.
 
     Returns
     -------
-    ax : `matplotlib.axes.Axes` or `~astropy.visualization.wcsaxes.WCSAxes`
-        object. The current axes, or a new one if created.
-
+    `matplotlib.axes.Axes` or `~astropy.visualization.wcsaxes.WCSAxes`
+        The current axes, or a new one if created.
     """
-
     if not fig:
         fig = plt.gcf()
 
     if not len(fig.get_axes()):
-        if not _FORCE_NO_WCSAXES:
-            ax = plt.gca(projection=wcs, slices=slices)
-        else:
-            ax = plt.gca()
-
+        ax = plt.axes(projection=wcs, slices=slices)
     else:
         ax = plt.gca()
 
@@ -83,18 +68,18 @@ def get_world_transform(axes):
     Get the transformation to world coordinates.
 
     If the axes is a `~astropy.visualization.wcsaxes.WCSAxes` instance this
-    returns the transform to the ``'world'`` coordinates, otherwise it returns
+    returns the transform to the "world" coordinates, otherwise it returns
     the transform to the matplotlib data coordinates, which are assumed to be in
     world coordinates.
 
     Parameters
     ----------
     axes : `~astropy.visualization.wcsaxes.WCSAxes` or `~matplotlib.axes.Axes`
-        object. The axes to get the transform from.
+        The axes to get the transform from.
 
     Returns
     -------
-    transform : `~matplotlib.transforms.CompositeGenericTransform`
+    `~matplotlib.transforms.CompositeGenericTransform`
         The transformation object.
     """
     if is_wcsaxes(axes):
@@ -105,115 +90,52 @@ def get_world_transform(axes):
     return transform
 
 
-def solar_coord_type_from_ctype(ctype):
+def default_wcs_grid(axes):
     """
-    Determine whether a particular WCS ctype corresponds to an angle or scalar
-    coordinate.
-    """
-
-    if ctype[2:4] == 'LN':
-        if ctype[:4] in ['HPLN', 'HGLN']:
-            return 'longitude', 180.
-
-        return 'longitude', None
-
-    elif ctype[2:4] == 'LT':
-        return 'latitude', None
-
-    else:
-        return 'scalar', None
-
-
-def default_wcs_ticks(axes, units, ctypes):
-    """
-    Set the ticks and axes type on a solar WCSAxes plot.
-    """
-
-    if not isinstance(axes, wcsaxes.WCSAxes):
-        raise TypeError("This axes is not a WCSAxes")
-
-    x = axes.coords[0]
-    y = axes.coords[1]
-
-    if x.ticks.get_tick_out() == 'in':
-        x.set_ticks(color='white')
-    if y.ticks.get_tick_out() == 'in':
-        y.set_ticks(color='white')
-
-    x.set_ticks_position('bl')
-    y.set_ticks_position('bl')
-
-    xtype = solar_coord_type_from_ctype(ctypes[0])
-    ytype = solar_coord_type_from_ctype(ctypes[1])
-
-    x.set_coord_type(*xtype)
-    y.set_coord_type(*ytype)
-
-    if xtype[0] == 'scalar':
-        x.set_major_formatter('x.x')
-    elif units[0] is u.deg:
-        x.set_major_formatter('d.d')
-    elif units[0] is u.arcsec:
-        x.set_major_formatter('s.s')
-    else:
-        x.set_major_formatter('x.x')
-
-    if ytype[0] == 'scalar':
-        x.set_major_formatter('x.x')
-    elif units[1] is u.deg:
-        y.set_major_formatter('d.d')
-    elif units[1] is u.arcsec:
-        y.set_major_formatter('s.s')
-    else:
-        y.set_major_formatter('x.x')
-
-
-def default_wcs_grid(axes, units, ctypes):
-    """
-    Apply some default wcsaxes grid formatting.
+    Apply some default `~astropy.visualization.wcsaxes.WCSAxes` grid
+    formatting.
 
     Parameters
     ----------
-    axes : `~astropy.visualization.wcsaxes.WCSAxes` object.
+    axes : `~astropy.visualization.wcsaxes.WCSAxes`
         The `~astropy.visualization.wcsaxes.WCSAxes` object to draw the world
         coordinate grid on.
-
-    units : `tuple`
-        The axes units axes x y order.
     """
-
-    default_wcs_ticks(axes, units, ctypes)
-
     axes.coords.grid(color='white', alpha=0.6, linestyle='dotted',
                      linewidth=0.5)
 
 
-@u.quantity_input(grid_spacing=u.deg)
-def wcsaxes_heliographic_overlay(axes, grid_spacing=10*u.deg, **kwargs):
+@u.quantity_input
+def wcsaxes_heliographic_overlay(axes, grid_spacing: u.deg = 10*u.deg, annotate=True,
+                                 obstime=None, rsun=None, **kwargs):
     """
-    Create a heliographic overlay using wcsaxes.
+    Create a heliographic overlay using
+    `~astropy.visualization.wcsaxes.WCSAxes`.
 
-    Also draw a grid and label the top axes.
+    Will draw a grid and label the top axes.
 
     Parameters
     ----------
-    axes : `~astropy.visualization.wcsaxes.WCSAxes` object.
+    axes : `~astropy.visualization.wcsaxes.WCSAxes`
         The `~astropy.visualization.wcsaxes.WCSAxes` object to create the HGS overlay on.
-
-    grid_spacing: `~astropy.units.Quantity`
+    grid_spacing : `~astropy.units.Quantity`
         Spacing for longitude and latitude grid in degrees.
+    annotate : `bool`
+        Passing `False` disables the axes labels and the ticks on the top and right axes.
+    obstime : `~astropy.time.Time`
+        The ``obstime`` to use for the `~sunpy.coordinates.HeliographicStonyhurst` grid.
+    rsun : `~astropy.units.Quantity`
+        The ``rsun`` to use for the `~sunpy.coordinates.HeliographicStonyhurst` grid.
 
     Returns
     -------
-    overlay : `~astropy.visualization.wcsaxes.WCSAxes` overlay
+    `~astropy.visualization.wcsaxes.WCSAxes`
         The overlay object.
 
     Notes
     -----
     Keywords are passed to `~astropy.visualization.wcsaxes.coordinates_map.CoordinatesMap.grid`.
-
     """
-
     # Unpack spacing
     if isinstance(grid_spacing, u.Quantity) and grid_spacing.size == 1:
         lon_space = lat_space = grid_spacing
@@ -222,7 +144,13 @@ def wcsaxes_heliographic_overlay(axes, grid_spacing=10*u.deg, **kwargs):
     else:
         raise ValueError("grid_spacing must be a Quantity of length one or two.")
 
-    overlay = axes.get_coords_overlay('heliographic_stonyhurst')
+    # Set the native coordinates to be bottom and left only so they don't share
+    # axes with the overlay.
+    c1, c2 = axes.coords
+    c1.set_ticks_position('bl')
+    c2.set_ticks_position('bl')
+
+    overlay = axes.get_coords_overlay(HeliographicStonyhurst(obstime=obstime, rsun=rsun))
 
     lon = overlay[0]
     lat = overlay[1]
@@ -230,17 +158,24 @@ def wcsaxes_heliographic_overlay(axes, grid_spacing=10*u.deg, **kwargs):
     lon.coord_wrap = 180
     lon.set_major_formatter('dd')
 
-    lon.set_axislabel('Solar Longitude', minpad=0.8)
-    lat.set_axislabel('Solar Latitude', minpad=0.9)
-
-    lon.set_ticks_position('tr')
-    lat.set_ticks_position('tr')
+    if annotate:
+        lon.set_axislabel('Solar Longitude', minpad=0.8)
+        lat.set_axislabel('Solar Latitude', minpad=0.9)
+        lon.set_ticks_position('tr')
+        lat.set_ticks_position('tr')
+    else:
+        lat.set_ticks_visible(False)
+        lon.set_ticks_visible(False)
+        lat.set_ticklabel_visible(False)
+        lon.set_ticklabel_visible(False)
 
     grid_kw = {'color': 'white', 'zorder': 100, 'alpha': 0.5}
     grid_kw.update(kwargs)
 
-    lon.set_ticks(spacing=lon_space, color=grid_kw['color'])
-    lat.set_ticks(spacing=lat_space, color=grid_kw['color'])
+    # Don't plot white ticks by default (only if explicitly asked)
+    tick_color = grid_kw['color'] if 'color' in kwargs else 'k'
+    lon.set_ticks(spacing=lon_space, color=tick_color)
+    lat.set_ticks(spacing=lat_space, color=tick_color)
 
     overlay.grid(**grid_kw)
 

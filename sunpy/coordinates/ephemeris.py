@@ -1,253 +1,340 @@
-# -*- coding: utf-8 -*-
 """
 Ephemeris calculations using SunPy coordinate frames
-
 """
-from __future__ import absolute_import, division
-import datetime
-import warnings
-
 import numpy as np
+from packaging import version
+
 import astropy.units as u
-from astropy.time import Time
-from astropy.coordinates import (SkyCoord, Angle, Longitude,
-                                 ICRS, PrecessedGeocentric, AltAz,
-                                 get_body_barycentric)
-from astropy.coordinates.representation import CartesianRepresentation, SphericalRepresentation
-from astropy._erfa.core import ErfaWarning
+from astropy.constants import c as speed_of_light
+from astropy.coordinates import (
+    ICRS,
+    HeliocentricEclipticIAU76,
+    SkyCoord,
+    get_body_barycentric,
+    get_body_barycentric_posvel,
+)
+from astropy.coordinates.representation import (
+    CartesianDifferential,
+    CartesianRepresentation,
+    SphericalRepresentation,
+)
 
+from sunpy import log
 from sunpy.time import parse_time
-from sunpy.time.time import _astropy_time
+from sunpy.time.time import _variables_for_parse_time_docstring
+from sunpy.util.decorators import add_common_docstring
+from .frames import HeliographicStonyhurst
 
-from .frames import HeliographicStonyhurst as HGS
-from .transformations import _SUN_DETILT_MATRIX
+__author__ = "Albert Y. Shih"
+__email__ = "ayshih@gmail.com"
 
 __all__ = ['get_body_heliographic_stonyhurst', 'get_earth',
-           'get_sun_B0', 'get_sun_L0', 'get_sun_P', 'get_sunearth_distance',
-           'get_sun_orientation']
+           'get_horizons_coord']
 
 
-def get_body_heliographic_stonyhurst(body, time='now'):
+@add_common_docstring(**_variables_for_parse_time_docstring())
+def get_body_heliographic_stonyhurst(body, time='now', observer=None, *, include_velocity=False):
     """
     Return a `~sunpy.coordinates.frames.HeliographicStonyhurst` frame for the location of a
-    solar-system body at a specified time.
+    solar-system body at a specified time.  The location can be corrected for light travel time
+    to an observer.
 
     Parameters
     ----------
     body : `str`
         The solar-system body for which to calculate positions
-    time : various
-        Time to use as `~astropy.time.Time` or in a parse_time-compatible format
+    time : {parse_time_types}
+        Time to use in a parse_time-compatible format
+    observer : `~astropy.coordinates.SkyCoord`
+        If None, the returned coordinate is the instantaneous or "true" location.
+        If not None, the returned coordinate is the astrometric location (i.e., accounts for light
+        travel time to the specified observer)
+    include_velocity : `bool`, optional
+        If True, include the body's velocity in the output coordinate.  Defaults to False.
 
     Returns
     -------
     out : `~sunpy.coordinates.frames.HeliographicStonyhurst`
         Location of the solar-system body in the `~sunpy.coordinates.HeliographicStonyhurst` frame
-    """
-    obstime = _astropy_time(time)
 
-    body_icrs = ICRS(get_body_barycentric(body, obstime))
-    body_hgs = body_icrs.transform_to(HGS(obstime=obstime))
+    Notes
+    -----
+    There is no correction for aberration due to observer motion.  For a body close to the Sun in
+    angular direction relative to the observer, the correction can be negligible because the
+    apparent location of the body will shift in tandem with the Sun.
+
+    Examples
+    --------
+    >>> from sunpy.coordinates.ephemeris import get_body_heliographic_stonyhurst
+
+    Obtain the location of Venus
+
+    >>> get_body_heliographic_stonyhurst('venus', '2012-06-06 04:07:29')
+    <HeliographicStonyhurst Coordinate (obstime=2012-06-06T04:07:29.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (0.07349535, 0.05223575, 0.72605496)>
+
+    Obtain the location of Venus as seen from Earth when adjusted for light travel time
+
+    >>> earth = get_body_heliographic_stonyhurst('earth', '2012-06-06 04:07:29')
+    >>> get_body_heliographic_stonyhurst('venus', '2012-06-06 04:07:29', observer=earth)
+    INFO: Apparent body location accounts for 144.07 seconds of light travel time [sunpy.coordinates.ephemeris]
+    <HeliographicStonyhurst Coordinate (obstime=2012-06-06T04:07:29.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (0.07084926, 0.0520573, 0.72605477)>
+
+    Obtain the location and velocity of Mars
+
+    >>> mars = get_body_heliographic_stonyhurst('mars', '2001-02-03', include_velocity=True)
+    >>> mars
+    <HeliographicStonyhurst Coordinate (obstime=2001-02-03T00:00:00.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (63.03105777, -5.20656151, 1.6251161)
+     (d_lon, d_lat, d_radius) in (arcsec / s, arcsec / s, km / s)
+        (-0.02323686, 0.00073376, -1.4798387)>
+
+    Transform that same location and velocity of Mars to a different frame using
+    `~astropy.coordinates.SkyCoord`.
+
+    >>> from astropy.coordinates import SkyCoord
+    >>> from sunpy.coordinates import Helioprojective
+    >>> SkyCoord(mars).transform_to(Helioprojective(observer=earth))
+    <SkyCoord (Helioprojective: obstime=2001-02-03T00:00:00.000, rsun=695700.0 km, observer=<HeliographicStonyhurst Coordinate (obstime=2012-06-06T04:07:29.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (6.2686056e-15, -0.00766698, 1.01475668)>): (Tx, Ty, distance) in (arcsec, arcsec, AU)
+        (-298654.73268523, -21726.6154073, 1.40134156)
+     (d_Tx, d_Ty, d_distance) in (arcsec / s, arcsec / s, km / s)
+        (-0.01663438, -0.00058027, -15.08908184)>
+    """
+    obstime = parse_time(time)
+
+    if observer is None:
+        # If there is no observer, there is not adjustment for light travel time
+        emitted_time = obstime
+    else:
+        observer_icrs = SkyCoord(observer).icrs.cartesian
+
+        # This implementation is modeled after Astropy's `_get_apparent_body_position`
+        light_travel_time = 0.*u.s
+        emitted_time = obstime
+        delta_light_travel_time = 1.*u.s  # placeholder value
+        while np.any(np.fabs(delta_light_travel_time) > 1.0e-8*u.s):
+            body_icrs = get_body_barycentric(body, emitted_time)
+            distance = (body_icrs - observer_icrs).norm()
+            delta_light_travel_time = light_travel_time - distance / speed_of_light
+            light_travel_time = distance / speed_of_light
+            emitted_time = obstime - light_travel_time
+
+        if light_travel_time.isscalar:
+            ltt_string = f"{light_travel_time.to_value('s'):.2f}"
+        else:
+            ltt_string = f"{light_travel_time.to_value('s')}"
+        log.info(f"Apparent body location accounts for {ltt_string} seconds of light travel time")
+
+    if include_velocity:
+        pos, vel = get_body_barycentric_posvel(body, emitted_time)
+        body_icrs = pos.with_differentials(vel.represent_as(CartesianDifferential))
+    else:
+        body_icrs = get_body_barycentric(body, emitted_time)
+
+    body_hgs = ICRS(body_icrs).transform_to(HeliographicStonyhurst(obstime=obstime))
 
     return body_hgs
 
 
-def get_earth(time='now'):
+@add_common_docstring(**_variables_for_parse_time_docstring())
+def get_earth(time='now', *, include_velocity=False):
     """
     Return a `~astropy.coordinates.SkyCoord` for the location of the Earth at a specified time in
-    the `~sunpy.coordinates.frames.HeliographicStonyhurst` frame.  The longitude will be 0 by definition.
+    the `~sunpy.coordinates.frames.HeliographicStonyhurst` frame.  The longitude will be zero by
+    definition.
 
     Parameters
     ----------
-    time : various
-        Time to use as `~astropy.time.Time` or in a parse_time-compatible format
+    time : {parse_time_types}
+        Time to use in a parse_time-compatible format
+    include_velocity : `bool`, optional
+        If True, include the Earth's velocity in the output coordinate. Defaults to False.
 
     Returns
     -------
     out : `~astropy.coordinates.SkyCoord`
         Location of the Earth in the `~sunpy.coordinates.frames.HeliographicStonyhurst` frame
+
+    Notes
+    -----
+    The Earth's velocity in the output coordinate will invariably be negligible in the longitude
+    direction because the `~sunpy.coordinates.frames.HeliographicStonyhurst` frame rotates in time
+    such that the plane of zero longitude (the XZ-plane) tracks Earth.
+
+    Examples
+    --------
+    >>> from sunpy.coordinates.ephemeris import get_earth
+    >>> get_earth('2001-02-03 04:05:06')
+    <SkyCoord (HeliographicStonyhurst: obstime=2001-02-03T04:05:06.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (0., -6.18656962, 0.98567647)>
+    >>> get_earth('2001-02-03 04:05:06', include_velocity=True)
+    <SkyCoord (HeliographicStonyhurst: obstime=2001-02-03T04:05:06.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (0., -6.18656962, 0.98567647)
+     (d_lon, d_lat, d_radius) in (arcsec / s, arcsec / s, km / s)
+        (6.42643739e-11, -0.00279484, 0.24968506)>
+    >>> get_earth('2001-02-03 04:05:06', include_velocity=True).transform_to('heliocentricinertial')
+    <SkyCoord (HeliocentricInertial: obstime=2001-02-03T04:05:06.000): (lon, lat, distance) in (deg, deg, AU)
+        (58.41594489, -6.18656962, 0.98567647)
+     (d_lon, d_lat, d_distance) in (arcsec / s, arcsec / s, km / s)
+        (0.0424104, -0.00279484, 0.2496851)>
     """
-    earth = get_body_heliographic_stonyhurst('earth', time=time)
+    earth = get_body_heliographic_stonyhurst('earth', time=time, include_velocity=include_velocity)
 
     # Explicitly set the longitude to 0
-    earth = SkyCoord(0*u.deg, earth.lat, earth.radius, frame=earth)
+    earth_repr = SphericalRepresentation(0*u.deg, earth.lat, earth.radius)
 
-    return earth
+    # Modify the representation in the frame while preserving all differentials (e.g., velocity)
+    earth = earth.realize_frame(earth_repr.with_differentials(earth.spherical.differentials))
+
+    return SkyCoord(earth)
 
 
-def get_sun_B0(time='now'):
+@add_common_docstring(**_variables_for_parse_time_docstring())
+def get_horizons_coord(body, time='now', id_type=None, *, include_velocity=False):
     """
-    Return the B0 angle for the Sun at a specified time, which is the heliographic latitude of the
-    Sun-disk center as seen from Earth.  The range of B0 is +/-7.23 degrees.
+    Queries JPL HORIZONS and returns a `~astropy.coordinates.SkyCoord` for the location of a
+    solar-system body at a specified time.  This location is the instantaneous or "true" location,
+    and is not corrected for light travel time or observer motion.
+
+    .. note::
+        This function requires the Astroquery package to be installed and
+        requires an Internet connection.
 
     Parameters
     ----------
-    time : various
-        Time to use as `~astropy.time.Time` or in a parse_time-compatible format
+    body : `str`
+        The solar-system body for which to calculate positions.  One can also use the search form
+        linked below to find valid names or ID numbers.
+    id_type : `None`, `str`
+        See the astroquery documentation for information on id_types: `astroquery.jplhorizons`.
+        If the installed astroquery version is less than 0.4.4, defaults to ``'majorbody'``.
+    time : {parse_time_types}, `dict`
+        Time to use in a parse_time-compatible format.
+
+        Alternatively, this can be a dictionary defining a range of times and
+        dates; the range dictionary has to be of the form
+        {{'start': start_time, 'stop': stop_time, 'step':'n[y|d|m|s]'}}.
+        ``start_time`` and ``stop_time`` must be in a parse_time-compatible format,
+        and are interpreted as UTC time. ``step`` must be a string with either a
+        number and interval length (e.g. for every 10 seconds, ``'10s'``), or a
+        plain number for a number of evenly spaced intervals. For more information
+        see the docstring of `astroquery.jplhorizons.HorizonsClass`.
+
+    include_velocity : `bool`, optional
+        If True, include the body's velocity in the output coordinate.  Defaults to False.
 
     Returns
     -------
-    out : `~astropy.coordinates.Angle`
-        The position angle
-    """
-    return Angle(get_earth(time).lat)
+    `~astropy.coordinates.SkyCoord`
+        Location of the solar-system body
 
+    Notes
+    -----
+    Be aware that there can be discrepancies between the coordinates returned by JPL HORIZONS,
+    the coordinates reported in mission data files, and the coordinates returned by
+    `~sunpy.coordinates.get_body_heliographic_stonyhurst`.
 
-# Ignore warnings that result from going back in time to the first Carrington rotation
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", ErfaWarning)
-
-    # Carrington rotation 1 starts late in the day on 1853 Nov 9
-    # according to Astronomical Algorithms (Meeus 1998, p.191)
-    _time_first_rotation = Time('1853-11-09 21:36')
-
-    # Longitude of Earth at Carrington rotation 1 in de-tilted HCRS (so that solar north pole is Z)
-    _lon_first_rotation = \
-        get_earth(_time_first_rotation).hcrs.cartesian.transform(_SUN_DETILT_MATRIX) \
-        .represent_as(SphericalRepresentation).lon.to('deg')
-
-
-def get_sun_L0(time='now'):
-    """
-    Return the L0 angle for the Sun at a specified time, which is the Carrington longitude of the
-    Sun-disk center as seen from Earth.
-
-    .. warning::
-       Due to apparent disagreement between published references, the returned L0 may be inaccurate
-       by up to ~2 arcmin, which translates in the worst case to a shift of ~0.5 arcsec in
-       helioprojective coordinates for an observer at 1 AU.  Until this is resolved, be cautious
-       with analysis that depends critically on absolute (as opposed to relative) values of
-       Carrington longitude.
-
-    Parameters
+    References
     ----------
-    time : various
-        Time to use as `~astropy.time.Time` or in a parse_time-compatible format
+    * `JPL HORIZONS <https://ssd.jpl.nasa.gov/?horizons>`_
+    * `JPL HORIZONS form to search bodies <https://ssd.jpl.nasa.gov/horizons.cgi?s_target=1#top>`_
+    * `Astroquery <https://astroquery.readthedocs.io/en/latest/>`_
 
-    Returns
-    -------
-    out : `~astropy.coordinates.Longitude`
-        The Carrington longitude
+    Examples
+    --------
+    >>> from sunpy.coordinates.ephemeris import get_horizons_coord
+
+    Query the location of Venus
+
+    >>> get_horizons_coord('Venus barycenter', '2001-02-03 04:05:06')  # doctest: +REMOTE_DATA
+    INFO: Obtained JPL HORIZONS location for Venus Barycenter (2) [sunpy.coordinates.ephemeris]
+    <SkyCoord (HeliographicStonyhurst: obstime=2001-02-03T04:05:06.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (-33.93155836, -1.64998443, 0.71915147)>
+
+    Query the location of the SDO spacecraft
+
+    >>> get_horizons_coord('SDO', '2011-11-11 11:11:11')  # doctest: +REMOTE_DATA
+    INFO: Obtained JPL HORIZONS location for Solar Dynamics Observatory (spac [sunpy.coordinates.ephemeris]
+    <SkyCoord (HeliographicStonyhurst: obstime=2011-11-11T11:11:11.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (0.01019118, 3.29640728, 0.99011042)>
+
+    Query the location of the SOHO spacecraft via its ID number (-21)
+
+    >>> get_horizons_coord(-21, '2004-05-06 11:22:33')  # doctest: +REMOTE_DATA
+    INFO: Obtained JPL HORIZONS location for SOHO (spacecraft) (-21) [sunpy.coordinates.ephemeris]
+    <SkyCoord (HeliographicStonyhurst: obstime=2004-05-06T11:22:33.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (0.25234902, -3.55863633, 0.99923086)>
+
+    Query the location and velocity of the asteroid Juno
+
+    >>> get_horizons_coord('Juno', '1995-07-18 07:17', 'smallbody', include_velocity=True)  # doctest: +REMOTE_DATA
+    INFO: Obtained JPL HORIZONS location for 3 Juno (A804 RA) [sunpy.coordinates.ephemeris]
+    <SkyCoord (HeliographicStonyhurst: obstime=1995-07-18T07:17:00.000, rsun=695700.0 km): (lon, lat, radius) in (deg, deg, AU)
+        (-25.16107532, 14.59098438, 3.17667664)
+     (d_lon, d_lat, d_radius) in (arcsec / s, arcsec / s, km / s)
+        (-0.03306548, 0.00052415, -2.66709222)>
+
+    Query the location of Solar Orbiter at a set of 12 regularly sampled times
+
+    >>> get_horizons_coord('Solar Orbiter',
+    ...                    time={{'start': '2020-12-01',
+    ...                           'stop': '2020-12-02',
+    ...                           'step': '12'}})  # doctest: +REMOTE_DATA
+    INFO: Obtained JPL HORIZONS location for Solar Orbiter (spacecraft) (-144 [sunpy.coordinates.ephemeris]
+    ...
     """
-    obstime = _astropy_time(time)
+    # Import here so that astroquery is not a module-level dependency
+    import astroquery
+    from astroquery.jplhorizons import Horizons
 
-    # Calculate the longitude due to the Sun's rotation relative to the stars
-    # A sidereal rotation is defined to be exactly 25.38 days
-    sidereal_lon = Longitude((obstime.jd - _time_first_rotation.jd) / 25.38 * 360*u.deg)
+    if id_type is None and version.parse(astroquery.__version__) < version.parse('0.4.4'):
+        # For older versions of astroquery retain default behaviour of this function
+        # if id_type isn't manually specified.
+        id_type = 'majorbody'
 
-    # Calculate the longitude of the Earth in de-tilted HCRS
-    lon_obstime = get_earth(obstime).hcrs.cartesian.transform(_SUN_DETILT_MATRIX) \
-                  .represent_as(SphericalRepresentation).lon.to('deg')
+    if isinstance(time, dict):
+        if set(time.keys()) != set(['start', 'stop', 'step']):
+            raise ValueError('time dictionary must have the keys ["start", "stop", "step"]')
+        epochs = time
+        jpl_fmt = '%Y-%m-%d %H:%M:%S'
+        epochs['start'] = parse_time(epochs['start']).tdb.strftime(jpl_fmt)
+        epochs['stop'] = parse_time(epochs['stop']).tdb.strftime(jpl_fmt)
+    else:
+        obstime = parse_time(time)
+        array_time = np.reshape(obstime, (-1,))  # Convert to an array, even if scalar
+        epochs = array_time.tdb.jd.tolist()  # Time must be provided in JD TDB
 
-    return Longitude(lon_obstime - _lon_first_rotation - sidereal_lon)
+    query = Horizons(id=body, id_type=id_type,
+                     location='500@10',      # Heliocentric (mean ecliptic)
+                     epochs=epochs)
+    try:
+        result = query.vectors()
+    except Exception as e:  # Catch and re-raise all exceptions, and also provide query URL if generated
+        if query.uri is not None:
+            log.error(f"See the raw output from the JPL HORIZONS query at {query.uri}")
+        raise e
+    finally:
+        query._session.close()
+    log.info(f"Obtained JPL HORIZONS location for {result[0]['targetname']}")
+    log.debug(f"See the raw output from the JPL HORIZONS query at {query.uri}")
 
+    if isinstance(time, dict):
+        obstime = parse_time(result['datetime_jd'], format='jd', scale='tdb')
+    else:
+        # JPL HORIZONS results are sorted by observation time, so this sorting needs to be undone.
+        # Calling argsort() on an array returns the sequence of indices of the unsorted list to put the
+        # list in order.  Calling argsort() again on the output of argsort() reverses the mapping:
+        # the output is the sequence of indices of the sorted list to put that list back in the
+        # original unsorted order.
+        unsorted_indices = obstime.argsort().argsort()
+        result = result[unsorted_indices]
 
-def get_sun_P(time='now'):
-    """
-    Return the position (P) angle for the Sun at a specified time, which is the angle between
-    geocentric north and solar north as seen from Earth, measured eastward from geocentric north.
-    The range of P is +/-26.3 degrees.
+    vector = CartesianRepresentation(result['x'], result['y'], result['z'])
+    if include_velocity:
+        velocity = CartesianDifferential(result['vx'], result['vy'], result['vz'])
+        vector = vector.with_differentials(velocity)
+    coord = SkyCoord(vector, frame=HeliocentricEclipticIAU76, obstime=obstime)
 
-    Parameters
-    ----------
-    time : various
-        Time to use as `~astropy.time.Time` or in a parse_time-compatible format
-
-    Returns
-    -------
-    out : `~astropy.coordinates.Angle`
-        The position angle
-    """
-    obstime = _astropy_time(time)
-
-    # Define the frame where its Z axis is aligned with geocentric north
-    geocentric = PrecessedGeocentric(equinox=obstime, obstime=obstime)
-
-    return _sun_north_angle_to_z(geocentric)
-
-
-def get_sunearth_distance(time='now'):
-    """
-    Return the distance between the Sun and the Earth at a specified time.
-
-    Parameters
-    ----------
-    time : various
-        Time to use as `~astropy.time.Time` or in a parse_time-compatible format
-
-    Returns
-    -------
-    out : `~astropy.coordinates.Distance`
-        The Sun-Earth distance
-    """
-    return get_earth(time).radius
-
-
-def get_sun_orientation(location, time='now'):
-    """
-    Return the orientation angle for the Sun from a specified Earth location and time.  The
-    orientation angle is the angle between local zenith and solar north, measured eastward from
-    local zenith.
-
-    Parameters
-    ----------
-    location : `~astropy.coordinates.EarthLocation`
-        Observer location on Earth
-    time : various
-        Time to use as `~astropy.time.Time` or in a parse_time-compatible format
-
-    Returns
-    -------
-    out : `~astropy.coordinates.Angle`
-        The orientation of the Sun
-    """
-    obstime = _astropy_time(time)
-
-    # Define the frame where its Z axis is aligned with local zenith
-    local_frame = AltAz(obstime=obstime, location=location)
-
-    return _sun_north_angle_to_z(local_frame)
-
-
-def _sun_north_angle_to_z(frame):
-    """
-    Return the angle between solar north and the Z axis of the provided frame's coordinate system
-    and observation time.
-    """
-    # Find the Sun center in HGS at the frame's observation time(s)
-    sun_center_repr = SphericalRepresentation(0*u.deg, 0*u.deg, 0*u.km)
-    # The representation is repeated for as many times as are in obstime prior to transformation
-    sun_center = SkyCoord(sun_center_repr._apply('repeat', frame.obstime.size),
-                          frame=HGS, obstime=frame.obstime)
-
-    # Find the Sun north in HGS at the frame's observation time(s)
-    # Only a rough value of the solar radius is needed here because, after the cross product,
-    #   only the direction from the Sun center to the Sun north pole matters
-    sun_north_repr = SphericalRepresentation(0*u.deg, 90*u.deg, 690000*u.km)
-    # The representation is repeated for as many times as are in obstime prior to transformation
-    sun_north = SkyCoord(sun_north_repr._apply('repeat', frame.obstime.size),
-                         frame=HGS, obstime=frame.obstime)
-
-    # Find the Sun center and Sun north in the frame's coordinate system
-    sky_normal = sun_center.transform_to(frame).data.to_cartesian()
-    sun_north = sun_north.transform_to(frame).data.to_cartesian()
-
-    # Use cross products to obtain the sky projections of the two vectors (rotated by 90 deg)
-    sun_north_in_sky = sun_north.cross(sky_normal)
-    z_in_sky = CartesianRepresentation(0, 0, 1).cross(sky_normal)
-
-    # Normalize directional vectors
-    sky_normal /= sky_normal.norm()
-    sun_north_in_sky /= sun_north_in_sky.norm()
-    z_in_sky /= z_in_sky.norm()
-
-    # Calculate the signed angle between the two projected vectors
-    cos_theta = sun_north_in_sky.dot(z_in_sky)
-    sin_theta = sun_north_in_sky.cross(z_in_sky).dot(sky_normal)
-    angle = np.arctan2(sin_theta, cos_theta).to('deg')
-
-    # If there is only one time, this function's output should be scalar rather than array
-    if angle.size == 1:
-        angle = angle[0]
-
-    return Angle(angle)
+    return coord.transform_to(HeliographicStonyhurst).reshape(obstime.shape)

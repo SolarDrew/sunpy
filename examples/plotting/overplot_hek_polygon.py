@@ -1,49 +1,38 @@
 """
-=====================================================
-Overplotting HEK feature/event polygons on SunPy maps
-=====================================================
+================================================
+Overplotting HEK feature/event polygons on a map
+================================================
 
-This example shows how to overplot HEK outlines on SunPy maps.
+How to overplot HEK outlines on a map.
 """
-
-##############################################################################
-# Start by importing the necessary modules.
-
-from __future__ import print_function, division
-
-from datetime import timedelta
-import numpy as np
-
 import matplotlib.pyplot as plt
+import numpy as np
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
+from astropy.time import TimeDelta
 
-import sunpy.map
 import sunpy.data.sample
-from sunpy.net import hek
-from sunpy.time import parse_time
+import sunpy.map
 from sunpy.coordinates import frames
+from sunpy.net import attrs as a
+from sunpy.net import hek
 from sunpy.physics.differential_rotation import solar_rotate_coordinate
+from sunpy.time import parse_time
 
-##############################################################################
-# Load in an AIA map:
+###############################################################################
+# We start with the sample data.
 
 aia_map = sunpy.map.Map(sunpy.data.sample.AIA_171_IMAGE)
 
 ##############################################################################
-# Let's look for sunspots in the HEK close to the time of the AIA map. First
-# create a client:
-
-hek_client = hek.HEKClient()
-
-##############################################################################
 # Look for coronal holes detected using the SPoCA feature recognition method:
 
-start_time = aia_map.date - timedelta(hours=2)
-end_time = aia_map.date + timedelta(hours=2)
-responses = hek_client.search(hek.attrs.Time(start_time, end_time),
-                              hek.attrs.CH, hek.attrs.FRM.Name == 'SPoCA')
+hek_client = hek.HEKClient()
+start_time = aia_map.date - TimeDelta(2*u.hour)
+end_time = aia_map.date + TimeDelta(2*u.hour)
+responses = hek_client.search(a.Time(start_time, end_time),
+                              a.hek.CH, a.hek.FRM.Name == 'SPoCA')
 
 ##############################################################################
 # Let's find the biggest coronal hole within 80 degrees north/south of the
@@ -56,7 +45,7 @@ for i, response in enumerate(responses):
         response_index = i
 
 ##############################################################################
-# Now let's get the boundary of the coronal hole
+# Next let's get the boundary of the coronal hole.
 
 ch = responses[response_index]
 p1 = ch["hpc_boundcc"][9:-2]
@@ -65,23 +54,24 @@ p3 = [v.split(" ") for v in p2]
 ch_date = parse_time(ch['event_starttime'])
 
 ##############################################################################
-# The coronal hole was detected at a certain time.  To plot it on a map, we
-# need to rotate it to the map observation time.
+# The coronal hole was detected at different time than the AIA image was
+# taken so we need to rotate it to the map observation time.
 
 ch_boundary = SkyCoord(
     [(float(v[0]), float(v[1])) * u.arcsec for v in p3],
-    obstime=ch_date,
+    obstime=ch_date, observer="earth",
     frame=frames.Helioprojective)
-rotated_ch_boundary = solar_rotate_coordinate(ch_boundary, aia_map.date)
+rotated_ch_boundary = solar_rotate_coordinate(ch_boundary, time=aia_map.date)
 
 ##############################################################################
 # Now let's plot the rotated coronal hole boundary on the AIA map, and fill
-# it with some matplotlib hatching.
+# it with hatching.
 
 fig = plt.figure()
 ax = plt.subplot(projection=aia_map)
-aia_map.plot(axes=ax)
+aia_map.plot(axes=ax, clip_interval=(1, 99.99)*u.percent)
 ax.plot_coord(rotated_ch_boundary, color='c')
 ax.set_title('{:s}\n{:s}'.format(aia_map.name, ch['frm_specificid']))
 plt.colorbar()
+
 plt.show()

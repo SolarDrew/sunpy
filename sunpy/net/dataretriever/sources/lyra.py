@@ -2,81 +2,56 @@
 # This module was developed under funding provided by
 # Google Summer of Code 2014
 
-import datetime
-from sunpy.extern.six.moves.urllib.parse import urljoin
-
-from ..client import GenericClient
+from sunpy.net.dataretriever.client import GenericClient
 
 __all__ = ['LYRAClient']
 
 
 class LYRAClient(GenericClient):
-    def _get_url_for_timerange(self, timerange, **kwargs):
-        """
-        Returns list of URLS corresponding to value of input timerange.
+    """
+    Provides access to the LYRA/Proba2 data archive.
 
-        Parameters
-        ----------
-        timerange: sunpy.time.TimeRange
-            time range for which data is to be downloaded.
+    Hosted by the `PROBA2 Science Center <http://proba2.oma.be/lyra/data/bsd/>`__.
 
-        Returns
-        -------
-        urls : list
-            list of URLs corresponding to the requested time range
-        """
-        days = timerange.get_dates()
-        urls = []
-        for day in days:
-            urls.append(self._get_url_for_date(day, **kwargs))
-        return urls
+    Examples
+    --------
+    >>> from sunpy.net import Fido, attrs as a
+    >>> results = Fido.search(a.Time("2016/1/1", "2016/1/2"),
+    ...                       a.Instrument.lyra)  #doctest: +REMOTE_DATA
+    >>> results  #doctest: +REMOTE_DATA
+    <sunpy.net.fido_factory.UnifiedResponse object at ...>
+    Results from 1 Provider:
+    <BLANKLINE>
+    4 Results from the LYRAClient:
+    Source: http://proba2.oma.be/lyra/data/bsd
+    <BLANKLINE>
+           Start Time               End Time        Instrument ... Provider Level
+    ----------------------- ----------------------- ---------- ... -------- -----
+    2016-01-01 00:00:00.000 2016-01-01 23:59:59.999       LYRA ...      ESA     2
+    2016-01-01 00:00:00.000 2016-01-01 23:59:59.999       LYRA ...      ESA     3
+    2016-01-02 00:00:00.000 2016-01-02 23:59:59.999       LYRA ...      ESA     2
+    2016-01-02 00:00:00.000 2016-01-02 23:59:59.999       LYRA ...      ESA     3
+    <BLANKLINE>
+    <BLANKLINE>
 
-    def _get_url_for_date(self, date, **kwargs):
-        """
-        Return URL for corresponding date.
+    """
+    baseurl = (r'http://proba2.oma.be/lyra/data/bsd/%Y/%m/%d/'
+               r'lyra_(\d){8}-000000_lev(\d){1}_std.fits')
+    pattern = '{}/bsd/{year:4d}/{month:2d}/{day:2d}/{}_lev{Level:1d}_std.fits'
 
-        Parameters
-        ----------
-        date : Python datetime object
-
-        Returns
-        -------
-        string
-            The URL for the corresponding date.
-        """
-
-        filename = "lyra_{0:%Y%m%d-}000000_lev{1:d}_std.fits".format(date, kwargs.get('level', 2))
-        base_url = "http://proba2.oma.be/lyra/data/bsd/"
-        url_path = urljoin(date.strftime('%Y/%m/%d/'), filename)
-
-        return urljoin(base_url, url_path)
-
-    def _makeimap(self):
-        """
-        Helper Function:used to hold information about source.
-        """
-        self.map_['source'] = 'Proba2'
-        self.map_['instrument'] = 'lyra'
-        self.map_['physobs'] = 'irradiance'
-        self.map_['provider'] = 'esa'
+    @property
+    def info_url(self):
+        return 'http://proba2.oma.be/lyra/data/bsd'
 
     @classmethod
-    def _can_handle_query(cls, *query):
-        """
-        Answers whether client can service the query.
-
-        Parameters
-        ----------
-        query : list of query objects
-
-        Returns
-        -------
-        boolean
-            answer as to whether client can service the query
-        """
-        chkattr =  ['Time', 'Instrument', 'Level']
-        chklist =  [x.__class__.__name__ in chkattr for x in query]
-        for x in query:
-            if x.__class__.__name__ == 'Instrument' and x.value.lower() == 'lyra':
-                return all(chklist)
-        return False
+    def register_values(cls):
+        from sunpy.net import attrs
+        adict = {attrs.Instrument: [('LYRA',
+                                     'Lyman Alpha Radiometer is the solar UV radiometer on board Proba-2.')],
+                 attrs.Physobs: [('irradiance', 'the flux of radiant energy per unit area.')],
+                 attrs.Source: [('PROBA2', 'The PROBA-2 Satellite')],
+                 attrs.Provider: [('ESA', 'The European Space Agency.')],
+                 attrs.Level: [('1', 'LYRA: Metadata and uncalibrated data daily fits.'),
+                               ('2', 'LYRA: Calibrated data, provided as daily fits.'),
+                               ('3', 'LYRA: Same as level 2 but the calibrated data is averaged over 1 min.')]}
+        return adict

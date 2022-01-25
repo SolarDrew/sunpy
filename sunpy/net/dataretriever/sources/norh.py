@@ -2,120 +2,91 @@
 #  This Module was developed under funding provided by
 #  Google Summer of Code 2014
 
-import datetime
 import astropy.units as u
 
-from sunpy.time import TimeRange
-from sunpy.util.scraper import Scraper
-
 from sunpy.net import attrs as a
-from ..client import GenericClient
+from sunpy.net.dataretriever import GenericClient
 
 __all__ = ['NoRHClient']
 
-BASEURL = 'ftp://solar-pub.nao.ac.jp/pub/nsro/norh/data/tcx/%Y/%m/{freq}%y%m%d'
-
 
 class NoRHClient(GenericClient):
+    """
+    Provides access to the Nobeyama RadioHeliograph (NoRH) averaged correlation
+    time series data.
 
-    def _get_url_for_timerange(self, timerange, **kwargs):
-        """
-        Returns list of URLS corresponding to value of input timerange.
+    Uses this `ftp archive <ftp://solar-pub.nao.ac.jp/pub/nsro/norh/data/tcx/>`__
+    hosted by the `NoRH Science Center <https://solar.nro.nao.ac.jp/norh/doc/manuale/node1.html>`__.
 
-        Parameters
-        ----------
-        timerange: `sunpy.time.TimeRange`
-            time range for which data is to be downloaded.
+    Queries to NoRH should specify either 17GHz or 34GHz as a Wavelength.
 
-        Returns
-        -------
-        urls : list
-            list of URLs corresponding to the requested time range
-        """
+    Examples
+    --------
+    >>> import astropy.units as u
+    >>> from sunpy.net import Fido, attrs as a
+    >>> results = Fido.search(a.Time("2016/1/1", "2016/1/2"),
+    ...                       a.Instrument.norh, a.Wavelength(17*u.GHz))  #doctest: +REMOTE_DATA
+    >>> results  #doctest: +REMOTE_DATA
+    <sunpy.net.fido_factory.UnifiedResponse object at ...>
+    Results from 1 Provider:
+    <BLANKLINE>
+    2 Results from the NoRHClient:
+    Source: https://solar.nro.nao.ac.jp/norh/doc/manuale/node1.html
+    <BLANKLINE>
+           Start Time               End Time        ... Provider Wavelength
+                                                    ...             GHz
+    ----------------------- ----------------------- ... -------- ----------
+    2016-01-01 00:00:00.000 2016-01-01 23:59:59.999 ...      NRO       17.0
+    2016-01-02 00:00:00.000 2016-01-02 23:59:59.999 ...      NRO       17.0
+    <BLANKLINE>
+    <BLANKLINE>
 
-        # We allow queries with no Wavelength but error here so that the query
-        # does not get passed to VSO and spit out garbage.
-        if 'wavelength' not in kwargs.keys() or not kwargs['wavelength']:
-            raise ValueError("Queries to NORH should specify either 17GHz or 34GHz as a Wavelength."
-                             "see http://solar.nro.nao.ac.jp/norh/doc/manuale/node65.html")
-        else:
-            wavelength = kwargs['wavelength']
+    """
+    baseurl = r'ftp://solar-pub.nao.ac.jp/pub/nsro/norh/data/tcx/%Y/%m/(\w){3}%y%m%d'
+    pattern = '{}/tcx/{year:4d}/{month:2d}/{Wavelength:3l}{:4d}{day:2d}'
 
-        # If wavelength is a single value GenericClient will have made it a
-        # Quantity in the kwargs.
-        if not isinstance(wavelength, u.Quantity):
-            raise ValueError("Wavelength to NORH must be one value not {}.".format(wavelength))
-
-        wavelength = wavelength.to(u.GHz, equivalencies=u.spectral())
-        if wavelength == 34 * u.GHz:
-            freq = 'tcz'
-        elif wavelength == 17 * u.GHz:
-            freq = 'tca'
-        else:
-            raise ValueError("NORH Data can be downloaded for 17GHz or 34GHz,"
-                             " see http://solar.nro.nao.ac.jp/norh/doc/manuale/node65.html")
-
-        # If start of time range is before 00:00, converted to such, so
-        # files of the requested time ranger are included.
-        # This is done because the archive contains daily files.
-        if timerange.start.time() != datetime.time(0, 0):
-            timerange = TimeRange('{:%Y-%m-%d}'.format(timerange.start),
-                                  timerange.end)
-
-        norh = Scraper(BASEURL, freq=freq)
-        # TODO: warn user that some files may have not been listed, like for example:
-        #       tca160504_224657 on ftp://solar-pub.nao.ac.jp/pub/nsro/norh/data/tcx/2016/05/
-        #       as it doesn't follow pattern.
-
-        return norh.filelist(timerange)
-
-    def _get_time_for_url(self, urls):
-        freq = urls[0].split('/')[-1][0:3]  # extract the frequency label
-        crawler = Scraper(BASEURL, freq=freq)
-        times = list()
-        for url in urls:
-            t0 = crawler._extractDateURL(url)
-            # hard coded full day as that's the normal.
-            times.append(TimeRange(t0, t0 + datetime.timedelta(days=1)))
-        return times
-
-    def _makeimap(self):
-        """
-        Helper Function used to hold information about source.
-        """
-        self.map_['source'] = 'NAOJ'
-        self.map_['provider'] = 'NRO'
-        self.map_['instrument'] = 'NORH'
-        self.map_['physobs'] = ''
+    @property
+    def info_url(self):
+        return 'https://solar.nro.nao.ac.jp/norh/doc/manuale/node1.html'
 
     @classmethod
-    def _can_handle_query(cls, *query):
+    def pre_search_hook(cls, *args, **kwargs):
         """
-        Answers whether client can service the query.
-
-        Parameters
-        ----------
-        query : list of query objects
-
-        Returns
-        -------
-        boolean
-            answer as to whether client can service the query
+        Converts the wavelength specified in the query to its
+        representation in the url which can be used by the scraper.
         """
-        required = {a.Time, a.Instrument}
-        optional = {a.Wavelength}
-        all_attrs = {type(x) for x in query}
+        d = cls._get_match_dict(*args, **kwargs)
+        waverange = a.Wavelength(34*u.GHz, 17*u.GHz)
+        req_wave = d.get('Wavelength', waverange)
+        wmin = req_wave.min.to(u.GHz, equivalencies=u.spectral())
+        wmax = req_wave.max.to(u.GHz, equivalencies=u.spectral())
+        req_wave = a.Wavelength(wmin, wmax)
+        d['Wavelength'] = []
+        if 17*u.GHz in req_wave:
+            d['Wavelength'].append('tca')
+        if 34*u.GHz in req_wave:
+            d['Wavelength'].append('tcz')
+        return cls.baseurl, cls.pattern, d
 
-        ops = all_attrs - required
-        # If ops is empty or equal to optional we are ok, otherwise we don't
-        # match
-        if ops and ops != optional:
-            return False
+    def post_search_hook(self, exdict, matchdict):
+        """
+        This method converts 'tca' and 'tcz' in the url's metadata
+        to a frequency of '17 GHz' and '34 GHz' respectively.
+        """
+        rowdict = super().post_search_hook(exdict, matchdict)
+        if rowdict['Wavelength'] == 'tca':
+            rowdict['Wavelength'] = 17*u.GHz
+        elif rowdict['Wavelength'] == 'tcz':
+            rowdict['Wavelength'] = 34*u.GHz
+        return rowdict
 
-        # if we get this far we have either Instrument and Time
-        # or Instrument, Time and Wavelength
-        for x in query:
-            if isinstance(x, a.Instrument) and x.value.lower() == 'norh':
-                return True
-
-        return False
+    @classmethod
+    def register_values(cls):
+        from sunpy.net import attrs
+        adict = {attrs.Instrument: [('NORH',
+                                     ('Nobeyama Radio Heliograph is an imaging radio telescope at 17 '
+                                      'or 34GHz located at the Nobeyama Solar Radio Observatory.'))],
+                 attrs.Source: [('NAOJ', 'The National Astronomical Observatory of Japan')],
+                 attrs.Provider: [('NRO', 'Nobeyama Radio Observatory')],
+                 attrs.Wavelength: [('*')]}
+        return adict

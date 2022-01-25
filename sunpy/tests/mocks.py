@@ -1,28 +1,25 @@
 """
-Support for creating our own mocked objects
-
-Author: Michael Charlton <m.charlton@mac.com>
+Provides classes for creating mocked objects.
 """
-
 import io
+from collections import defaultdict
+from collections.abc import MutableMapping
 
-from collections import MutableMapping, defaultdict
+__all__ = ["MockObject", "MockHTTPResponse", "MockOpenTextFile"]
 
 
 class MockObject(MutableMapping):
     """
-    Object from which we can construct other 'mocked' objects. See
-    following examples.
+    Object from which we can construct other "mocked" objects.
 
     Limitations
     -----------
-
-    On initiation a `ValueError` will be raised if any of the `kwargs` have the same name as an
-    existing attribute/method of the `MockObject` or underlying data store.
+    On initiation a `ValueError` will be raised if any of the ``kwargs`` have the same name as an
+    existing attribute/method of the `~sunpy.tests.mock.MockObject` or underlying data store.
 
     Updating existing attributes, or adding new ones, should only be done using bracket
-    notation and *not* dot notation. Using dot notation will update the `MockObject` and not the
-    data store.
+    notation and **not** dot notation.
+    Using dot notation will update the `~sunpy.tests.mock.MockObject` and not the data store.
 
     Examples
     --------
@@ -37,8 +34,7 @@ class MockObject(MutableMapping):
     >>> mo['code']
     400
 
-    The recommended way of changing the value of an existing, or new, attribute is using bracket
-    notation:
+    The recommended way of changing the value of an existing, or new, attribute is using bracket notation:
 
     >>> m = MockObject(start='now')
     >>> m['start'] = 'Thursday'
@@ -47,6 +43,7 @@ class MockObject(MutableMapping):
     >>> m.start
     'Thursday'
     """
+
     def __init__(self, *args, **kwargs):
         self._datastore = dict()
         self.prohibited_attrs = set(dir(self))
@@ -78,7 +75,7 @@ class MockObject(MutableMapping):
         self._datastore[name] = value
 
     def __delitem__(self, name):
-        raise NotImplementedError("'del' operation for {0} "
+        raise NotImplementedError("'del' operation for {} "
                                   "not supported".format(self.__class__.__name__))
 
     def __iter__(self):
@@ -96,22 +93,20 @@ class MockObject(MutableMapping):
 
 class MockHTTPResponse(MockObject):
     """
-    The result of calling `urlopen(...)`. For this implementation we are only interested in
-    querying the 'headers' attribute, which is a http.client.HTTPMessage object.
+    The result of calling `~urllib.request.urlopen`. For this implementation we
+    are only interested in querying the "headers" attribute, which is a
+    http.client.HTTPMessage object.
 
     Parameters
     ----------
-
-    url : `str` optional, default: ''
-        The url of the connection
-
-    headers : `dict` of `str` optional, default: empty dictionary
-        HTTP header fields of the response message.
+    url : `str` optional
+        The url of the connection. Defaults to ''.
+    headers : `dict` of `str` optional
+        HTTP header fields of the response message. Defaults to ``{}``.
 
     Limitations
     -----------
-
-    On a 'real' http.client.HTTPMessage, header name retrieval is case insensitive.
+    On a "real" ``http.client.HTTPMessage``, header name retrieval is case insensitive.
     In this implementation the header names are case sensitive.
 
     Examples
@@ -120,8 +115,9 @@ class MockHTTPResponse(MockObject):
     >>> result.headers.get('Content-Type')
     'text/html'
     """
+
     def __init__(self, *args, **kwargs):
-        super(MockHTTPResponse, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.setdefault('url', '')
 
@@ -135,40 +131,35 @@ class MockHTTPResponse(MockObject):
 
 class MockOpenTextFile(MockObject):
     """
-    Partial implementation of a file like object for reading/wrtiing text files. Binary files
-    are *not* supported.
+    Partial implementation of a file like object for reading/writing text
+    files.
 
-    Many methods not implemented, no attempt is made to keep track of where we are
-    in the file say in regards to any read operation.
+    Binary files are **not** supported.
 
     Parameters
     ----------
-    file : `str` optional, default:'UNKNOWN'
-        The name of the file. As per the builtin `open` function
-
-    mode : `str` optional, default:'r'
-        The way in which the file is to be used. As per the builtin `open` function
-
-    data : `str` optional keyword, default:''
-        The inital data which can be read from the file.
+    file : `str`, optional
+        The name of the file. Default to "N/A".
+    mode : `str`, optional, default:'r'
+        The way in which the file is to be used. Defaults to "r", i.e., read.
+    data : `str`, optional
+        The initial data which can be read from the file. Defaults to ''.
 
     Limitations
     -----------
-
     Unlike in a real file, this implementation makes no attempt to keep
     track of where we are, when reading or writing.
 
     Examples
     --------
-
     >>> dummy_read_only = MockOpenTextFile()
     >>> named_write = MockOpenTextFile(file='a.txt', mode='w')
     >>> named_read = MockOpenTextFile('b.txt')
     >>> named_rd_wr = MockOpenTextFile('c.txt', 'r+', data='Hello, world')
     """
-    def __init__(self, *args, **kwargs):
 
-        # Positional and/or keword args can be used for the 'file' & 'mode'
+    def __init__(self, *args, **kwargs):
+        # Positional and/or keyword args can be used for the 'file' & 'mode'
         # parameters. Could do a lot more checking to make sure all required
         # arguments are present
 
@@ -183,7 +174,7 @@ class MockOpenTextFile(MockObject):
         if 'mode' not in kwargs:
             kwargs['mode'] = 'r'
 
-        super(MockOpenTextFile, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.setdefault('file', 'N/A')
         self['name'] = self['file']
         self.setdefault('closed', False)
@@ -210,7 +201,7 @@ class MockOpenTextFile(MockObject):
         # Documentation recommends using '\n' as the line terminator when reading/writing text
         # files. See `os.linesep` in https://docs.python.org/3/library/os.html
         new_line = '\n'
-        return ['{0}{1}'.format(line, new_line) for line in self.data.split(new_line)]
+        return [f'{line}{new_line}' for line in self.data.split(new_line)]
 
     def readable(self):
         if self.closed:

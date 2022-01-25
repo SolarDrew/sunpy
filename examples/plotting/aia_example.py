@@ -1,24 +1,43 @@
 """
-================
-AIA Plot Example
-================
+==============
+Plotting a map
+==============
 
-This is a very simple way to plot a sample AIA image.
+How to create a plot of a map.
 """
-from __future__ import print_function, division
-
+# sphinx_gallery_thumbnail_number = 2
 import matplotlib.pyplot as plt
+
+import astropy.units as u
 
 import sunpy.map
 from sunpy.data.sample import AIA_171_IMAGE
 
 ###############################################################################
-# We now create the Map using the sample data.
+# We start with the sample data.
 
 aiamap = sunpy.map.Map(AIA_171_IMAGE)
 
-###############################################################################
-# Now we do a quick plot.
+##############################################################################
+# Let's plot the result. Setting the projection is necessary to ensure that
+# pixels can be converted accurately to coordinates values.
 
-aiamap.peek()
+plt.figure()
+ax = plt.subplot(projection=aiamap)
+aiamap.plot()
+aiamap.draw_limb()
+aiamap.draw_grid()
+
+##############################################################################
+# The above image looks "dark" because the color scale is accounting for the
+# small set of pixels that are extremely bright. We can use the keyword
+# ``clip_interval`` to clip out pixels with extreme values. Here, we clip out
+# the darkest 1% of pixels and the brightest 0.01% of pixels.
+
+plt.figure()
+ax = plt.subplot(projection=aiamap)
+aiamap.plot(clip_interval=(1, 99.99)*u.percent)
+aiamap.draw_limb()
+aiamap.draw_grid()
+
 plt.show()

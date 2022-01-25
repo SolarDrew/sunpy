@@ -3,21 +3,17 @@
 # This module was developed with funding provided by
 # the Google Summer of Code (2013).
 
-from __future__ import absolute_import
-
 from abc import ABCMeta, abstractmethod, abstractproperty
-from collections import MutableMapping, OrderedDict, Counter
-
-from sunpy.extern import six
+from collections import Counter, OrderedDict
+from collections.abc import MutableMapping
 
 __all__ = ['BaseCache', 'LRUCache', 'LFUCache']
 
 
-@six.add_metaclass(ABCMeta)
-class BaseCache(object):
+class BaseCache(metaclass=ABCMeta):
     """
     BaseCache is a class that saves and operates on an OrderedDict. It has a
-    certain capacity, stored in the attribute `maxsize`. Whether this
+    certain capacity, stored in the attribute ``maxsize``. Whether this
     capacity is reached, can be checked by using the boolean property
     `is_full`. To implement a custom cache, inherit from this class and
     override the methods ``__getitem__`` and ``__setitem__``.
@@ -29,9 +25,9 @@ class BaseCache(object):
         self.maxsize = maxsize
         self._dict = OrderedDict()
 
-    def get(self, key, default=None):  # pragma: no cover
-        """Return the corresponding value to `key` if `key` is in the cache,
-        `default` otherwise. This method has no side-effects, multiple calls
+    def get(self, key, default=None):
+        """Return the corresponding value to ``key`` if ``key`` is in the cache,
+        ``default`` otherwise. This method has no side-effects, multiple calls
         with the same cache and the same passed key must always return the same
         value.
 
@@ -48,7 +44,7 @@ class BaseCache(object):
         attempted to be accessed.
 
         """
-        return  # pragma: no cover
+        return
 
     @abstractmethod
     def __setitem__(self, key, value):
@@ -83,7 +79,7 @@ class BaseCache(object):
 
     @property
     def is_full(self):
-        """True if the number of items in the cache equals :attr:`maxsize`,
+        """True if the number of items in the cache equals ``self.maxsize``,
         False otherwise.
 
         """
@@ -99,75 +95,71 @@ class BaseCache(object):
         return len(self._dict)
 
     def __iter__(self):
-        for key in self._dict.__iter__():
-            yield key
+        yield from self._dict.__iter__()
 
-    def __reversed__(self):  # pragma: no cover
-        for key in self._dict.__reversed__():
-            yield key
+    def __reversed__(self):
+        yield from self._dict.__reversed__()
 
-    def clear(self):  # pragma: no cover
+    def clear(self):
         return self._dict.clear()
 
-    def keys(self):  # pragma: no cover
+    def keys(self):
         return list(self._dict.keys())
 
-    def values(self):  # pragma: no cover
+    def values(self):
         return list(self._dict.values())
 
-    def items(self):  # pragma: no cover
+    def items(self):
         return list(self._dict.items())
 
-    def iterkeys(self):  # pragma: no cover
+    def iterkeys(self):
         return iter(self._dict.keys())
 
-    def itervalues(self):  # pragma: no cover
-        for value in self._dict.values():
-            yield value
+    def itervalues(self):
+        yield from self._dict.values()
 
-    def iteritems(self):  # pragma: no cover
-        for key, value in six.iteritems(self._dict):
-            yield key, value
+    def iteritems(self):
+        yield from self._dict.items()
 
-    def update(self, *args, **kwds):  # pragma: no cover
+    def update(self, *args, **kwds):
         self._dict.update(*args, **kwds)
 
-    def pop(self, key, default=MutableMapping._MutableMapping__marker):  # pragma: no cover
+    def pop(self, key, default=MutableMapping._MutableMapping__marker):
         return self._dict.pop(key, default)
 
-    def setdefault(self, key, default=None):  # pragma: no cover
+    def setdefault(self, key, default=None):
         return self._dict.setdefault(key, default)
 
-    def popitem(self, last=True):  # pragma: no cover
+    def popitem(self, last=True):
         return self._dict.popitem(last)
 
-    def __reduce__(self):  # pragma: no cover
+    def __reduce__(self):
         return self._dict.__reduce__()
 
-    def copy(self):  # pragma: no cover
+    def copy(self):
         return self._dict.copy()
 
-    def __eq__(self, other):  # pragma: no cover
+    def __eq__(self, other):
         return self._dict.__eq__(other)
 
-    def __ne__(self, other):  # pragma: no cover
+    def __ne__(self, other):
         return self._dict.__ne__(other)
 
-    def viewkeys(self):  # pragma: no cover
+    def viewkeys(self):
         return self._dict.keys()
 
-    def viewvalues(self):  # pragma: no cover
+    def viewvalues(self):
         return self._dict.values()
 
-    def viewitems(self):  # pragma: no cover
+    def viewitems(self):
         return self._dict.items()
 
     @classmethod
-    def fromkeys(cls, iterable, value=None):  # pragma: no cover
+    def fromkeys(cls, iterable, value=None):
         return OrderedDict.fromkeys(iterable, value)
 
-    def __repr__(self):  # pragma: no cover
-        return '{0}({1!r})'.format(self.__class__.__name__, dict(self._dict))
+    def __repr__(self):
+        return '{}({!r})'.format(self.__class__.__name__, dict(self._dict))
 
 
 class LRUCache(BaseCache):
@@ -180,7 +172,7 @@ class LRUCache(BaseCache):
         tuple.
 
         """
-        return six.next(self.iteritems())
+        return next(self.iteritems())
 
     def remove(self):
         """Remove the least recently used item."""
@@ -221,6 +213,7 @@ class LFUCache(BaseCache):
     """
     LFUCache
     """
+
     def __init__(self, maxsize=float('inf')):
         self.usage_counter = Counter()
         BaseCache.__init__(self, maxsize)
@@ -233,7 +226,7 @@ class LFUCache(BaseCache):
         """
         min_ = float('inf')
         lfu_key = None
-        for k, v in six.iteritems(self.usage_counter):
+        for k, v in self.usage_counter.items():
             if v < min_:
                 min_ = v
                 lfu_key = k

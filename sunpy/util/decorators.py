@@ -1,33 +1,44 @@
-# -*- coding: utf-8 -*-
-# Licensed under a 3-clause BSD style license - see LICENSE.rst
-"""Sundry function and class decorators."""
-
-from __future__ import print_function
-
-
-import functools
+"""
+This module provides SunPy specific decorators.
+"""
+import types
 import inspect
 import textwrap
-import types
 import warnings
+import functools
+from inspect import Parameter, signature
+from functools import wraps
 
-from sunpy.util.exceptions import SunpyDeprecationWarning
-from sunpy.extern import six
+import astropy.units as u
+
+from sunpy.util.exceptions import SunpyDeprecationWarning, SunpyPendingDeprecationWarning
 
 __all__ = ['deprecated']
 
 
-def deprecated(since, message='', name='', alternative=''):
+def get_removal_version(since):
+    # Work out which version this will be removed in
+    since_major, since_minor = since.split('.')[:2]
+    since_lts = since_minor == '0'
+    if since_lts:
+        major = int(since_major)
+        minor = int(since_minor) + 1
+    else:
+        major = int(since_major) + 1
+        minor = 1
+    return major, minor
+
+
+def deprecated(since, message='', name='', alternative='', pending=False,
+               obj_type=None):
     """
     Used to mark a function or class as deprecated.
 
-
     Parameters
-    ------------
+    ----------
     since : str
         The release at which this API became deprecated.  This is
         required.
-
     message : str, optional
         Override the default deprecation message.  The format
         specifier ``func`` may be used for the name of the function,
@@ -35,7 +46,6 @@ def deprecated(since, message='', name='', alternative=''):
         to insert the name of an alternative to the deprecated
         function. ``obj_type`` may be used to insert a friendly name
         for the type of object being deprecated.
-
     name : str, optional
         The name of the deprecated function or class; if not provided
         the name is automatically determined from the passed in
@@ -51,9 +61,27 @@ def deprecated(since, message='', name='', alternative=''):
         An alternative function or class name that the user may use in
         place of the deprecated object.  The deprecation warning will
         tell the user about this alternative if provided.
-
+    pending : bool, optional
+        If True, uses a SunpyPendingDeprecationWarning instead of a
+        ``warning_type``.
+    obj_type : str, optional
+        The type of this object, if the automatically determined one
+        needs to be overridden.
     """
+    major, minor = get_removal_version(since)
+    removal_version = f"{major}.{minor}"
+    # TODO: replace this with the astropy deprecated decorator
+    return _deprecated(since, message=message, name=name, alternative=alternative, pending=pending,
+                       removal_version=removal_version, obj_type=obj_type,
+                       warning_type=SunpyDeprecationWarning,
+                       pending_warning_type=SunpyPendingDeprecationWarning)
 
+
+def _deprecated(since, message='', name='', alternative='', pending=False, removal_version=None,
+                obj_type=None, warning_type=SunpyDeprecationWarning,
+                pending_warning_type=SunpyPendingDeprecationWarning):
+    # TODO: remove this once the removal_version kwarg has been added to the upstream
+    # astropy deprecated decorator
     method_types = (classmethod, staticmethod, types.MethodType)
 
     def deprecate_doc(old_doc, message):
@@ -66,7 +94,7 @@ def deprecated(since, message='', name='', alternative=''):
         old_doc = textwrap.dedent(old_doc).strip('\n')
         new_doc = (('\n.. deprecated:: {since}'
                     '\n    {message}\n\n'.format(
-                    **{'since': since, 'message': message.strip()})) + old_doc)
+                        **{'since': since, 'message': message.strip()})) + old_doc)
         if not old_doc:
             # This is to prevent a spurious 'unexpected unindent' warning from
             # docutils when the original docstring was blank.
@@ -82,22 +110,24 @@ def deprecated(since, message='', name='', alternative=''):
             func = func.__func__
         return func
 
-    def deprecate_function(func, message):
+    def deprecate_function(func, message, warning_type=warning_type):
         """
-        Returns a wrapped function that displays an
-        ``AstropyDeprecationWarning`` when it is called.
+        Returns a wrapped function that displays ``warning_type``
+        when it is called.
         """
 
         if isinstance(func, method_types):
             func_wrapper = type(func)
         else:
-            func_wrapper = lambda f: f
+            def func_wrapper(f): return f
 
         func = get_function(func)
 
         def deprecated_func(*args, **kwargs):
-
-            category = SunpyDeprecationWarning
+            if pending:
+                category = pending_warning_type
+            else:
+                category = warning_type
 
             warnings.warn(message, category, stacklevel=2)
 
@@ -107,7 +137,7 @@ def deprecated(since, message='', name='', alternative=''):
         # functools.wraps on it, but we normally don't care.
         # This crazy way to get the type of a wrapper descriptor is
         # straight out of the Python 3.3 inspect module docs.
-        if type(func) is not type(str.__dict__['__add__']):  # nopep8
+        if type(func) is not type(str.__dict__['__add__']):  # NOQA
             deprecated_func = functools.wraps(func)(deprecated_func)
 
         deprecated_func.__doc__ = deprecate_doc(
@@ -115,69 +145,76 @@ def deprecated(since, message='', name='', alternative=''):
 
         return func_wrapper(deprecated_func)
 
-    def deprecate_class(cls, message):
+    def deprecate_class(cls, message, warning_type=warning_type):
         """
-        Returns a wrapper class with the docstrings updated and an
-        __init__ function that will raise an
-        ``AstropyDeprectationWarning`` warning when called.
+        Update the docstring and wrap the ``__init__`` in-place (or ``__new__``
+        if the class or any of the bases overrides ``__new__``) so it will give
+        a deprecation warning when an instance is created.
+
+        This won't work for extension classes because these can't be modified
+        in-place and the alternatives don't work in the general case:
+
+        - Using a new class that looks and behaves like the original doesn't
+          work because the __new__ method of extension types usually makes sure
+          that it's the same class or a subclass.
+        - Subclassing the class and return the subclass can lead to problems
+          with pickle and will look weird in the Sphinx docs.
         """
-        # Creates a new class with the same name and bases as the
-        # original class, but updates the dictionary with a new
-        # docstring and a wrapped __init__ method.  __module__ needs
-        # to be manually copied over, since otherwise it will be set
-        # to *this* module (astropy.utils.misc).
-
-        # This approach seems to make Sphinx happy (the new class
-        # looks enough like the original class), and works with
-        # extension classes (which functools.wraps does not, since
-        # it tries to modify the original class).
-
-        # We need to add a custom pickler or you'll get
-        #     Can't pickle <class ..>: it's not found as ...
-        # errors. Picklability is required for any class that is
-        # documented by Sphinx.
-
-        members = cls.__dict__.copy()
-
-        members.update({
-            '__doc__': deprecate_doc(cls.__doc__, message),
-            '__init__': deprecate_function(get_function(cls.__init__),
-                                           message),
-        })
-
-        return type(cls)(cls.__name__, cls.__bases__, members)
-
-    def deprecate(obj, message=message, name=name, alternative=alternative):
-        if isinstance(obj, type):
-            obj_type_name = 'class'
-        elif inspect.isfunction(obj):
-            obj_type_name = 'function'
-        elif inspect.ismethod(obj) or isinstance(obj, method_types):
-            obj_type_name = 'method'
+        cls.__doc__ = deprecate_doc(cls.__doc__, message)
+        if cls.__new__ is object.__new__:
+            cls.__init__ = deprecate_function(get_function(cls.__init__),
+                                              message, warning_type)
         else:
-            obj_type_name = 'object'
+            cls.__new__ = deprecate_function(get_function(cls.__new__),
+                                             message, warning_type)
+        return cls
+
+    def deprecate(obj, message=message, name=name, alternative=alternative,
+                  pending=pending, warning_type=warning_type):
+        if obj_type is None:
+            if isinstance(obj, type):
+                obj_type_name = 'class'
+            elif inspect.isfunction(obj):
+                obj_type_name = 'function'
+            elif inspect.ismethod(obj) or isinstance(obj, method_types):
+                obj_type_name = 'method'
+            else:
+                obj_type_name = 'object'
+        else:
+            obj_type_name = obj_type
 
         if not name:
             name = get_function(obj).__name__
 
         altmessage = ''
         if not message or type(message) is type(deprecate):
-            message = ('The {func} {obj_type} is deprecated and may '
-                       'be removed in a future version.')
+            if pending:
+                message = ('The {func} {obj_type} will be deprecated in '
+                           'version {deprecated_version}.')
+            else:
+                message = ('The {func} {obj_type} is deprecated and may '
+                           'be removed in {future_version}.')
             if alternative:
-                altmessage = '\n        Use {} instead.'.format(alternative)
+                altmessage = f'\n        Use {alternative} instead.'
+
+        if removal_version is None:
+            future_version = 'a future version'
+        else:
+            future_version = f'version {removal_version}'
 
         message = ((message.format(**{
             'func': name,
             'name': name,
+            'deprecated_version': since,
+            'future_version': future_version,
             'alternative': alternative,
             'obj_type': obj_type_name})) +
             altmessage)
 
         if isinstance(obj, type):
-            return deprecate_class(obj, message)
+            return deprecate_class(obj, message, warning_type)
         else:
-            return deprecate_function(obj, message)
+            return deprecate_function(obj, message, warning_type)
 
     if type(message) is type(deprecate):
         return deprecate(message)
@@ -185,11 +222,10 @@ def deprecated(since, message='', name='', alternative=''):
     return deprecate
 
 
-class add_common_docstring(object):
+class add_common_docstring:
     """
-    A function decorator that will append and/or prepend an addendum
-    to the docstring of the target function.
-
+    A function decorator that will append and/or prepend an addendum to the
+    docstring of the target function.
 
     Parameters
     ----------
@@ -215,10 +251,154 @@ class add_common_docstring(object):
         func.__doc__ = func.__doc__ if func.__doc__ else ''
         self.append = self.append if self.append else ''
         self.prepend = self.prepend if self.prepend else ''
-        if self.append and isinstance(func.__doc__, six.string_types):
+        if self.append and isinstance(func.__doc__, str):
             func.__doc__ += self.append
-        if self.prepend and isinstance(func.__doc__, six.string_types):
+        if self.prepend and isinstance(func.__doc__, str):
             func.__doc__ = self.prepend + func.__doc__
         if self.kwargs:
-            func.__doc__ = func.__doc__.format(self.kwargs)
+            func.__doc__ = func.__doc__.format(**self.kwargs)
         return func
+
+
+def deprecate_positional_args_since(since, keyword_only=False):
+    """
+    Parameters
+    ----------
+    since : str
+        Parameter denoting last supported version.
+    """
+    def deprecate_positional_args(f):
+        """
+        Decorator for methods that issues warnings for positional arguments
+        Using the keyword-only argument syntax in pep 3102, arguments after the
+        * will issue a warning when passed as a positional argument.
+
+        Parameters
+        ----------
+        f : function
+            Function to check arguments on.
+
+        References
+        ----------
+        Taken from from `scikit-learn <https://github.com/scikit-learn/scikit-learn/blob/master/sklearn/utils/validation.py#L1271>`__.
+        Licensed under the BSD, see "licenses/SCIKIT-LEARN.rst".
+        """
+        nonlocal keyword_only
+
+        sig = signature(f)
+        kwonly_args = []
+        all_args = []
+        keyword_only = keyword_only or tuple()
+
+        for name, param in sig.parameters.items():
+            if param.kind == Parameter.POSITIONAL_OR_KEYWORD:
+                all_args.append(name)
+            elif param.kind == Parameter.KEYWORD_ONLY:
+                kwonly_args.append(name)
+
+        @wraps(f)
+        def inner_f(*args, **kwargs):
+            extra_args = len(args) - len(all_args)
+            if extra_args > 0:
+                for name, arg in zip(kwonly_args[:extra_args], args[-extra_args:]):
+                    if name in keyword_only:
+                        raise TypeError(f"{name} must be specified as a keyword argument.")
+
+                # ignore first 'self' argument for instance methods
+                args_msg = [f'{name}={arg}'
+                            for name, arg in zip(kwonly_args[:extra_args],
+                                                 args[-extra_args:])]
+                last_supported_version = ".".join(map(str, get_removal_version(since)))
+                warn_deprecated(f"Pass {', '.join(args_msg)} as keyword args. "
+                                f"From version {last_supported_version} "
+                                "passing these as positional arguments will result in an error.")
+            kwargs.update({k: arg for k, arg in zip(sig.parameters, args)})
+            return f(**kwargs)
+        return inner_f
+    return deprecate_positional_args
+
+
+_NOT_FOUND = object()
+
+
+def cached_property_based_on(attr_name):
+    """
+    A decorator to cache the value of a property based on the output of a
+    different class attribute.
+
+    This decorator caches the values of ``getattr(instance, method)`` and
+    ``prop(instance)``. When the decorated property is accessed,
+    ``getattr(instance, method)`` is called. If this returns the same as its
+    cached value, the cached value of ``prop`` is returned. Otherwise both
+    ``meth`` and ``prop`` are recomputed, cached, and the new value of ``prop``
+    is returned.
+
+    Parameters
+    ----------
+    attr_name
+        The name of the attribute, on which changes are checked for. The actual
+        attribute is accessed using ``getattr(attr_name, instance)``.
+
+    Notes
+    -----
+    The cached value of ``meth(instance)`` is stored under the key ``meth.__name__``.
+    """
+    def outer(prop):
+        """
+        prop: the property method being decorated
+        """
+        @wraps(outer)
+        def inner(instance):
+            """
+            Parameters
+            ----------
+            instance
+                Any class instance that has the property ``prop``,
+                and attribute ``attr``.
+            """
+            cache = instance.__dict__
+            prop_key = prop.__name__
+
+            # Check if our caching method has changed ouptut
+            new_attr_val = getattr(instance, attr_name)
+            old_attr_val = cache.get(attr_name, _NOT_FOUND)
+            if (old_attr_val is _NOT_FOUND or
+                    new_attr_val != old_attr_val or
+                    prop_key not in cache):
+                # Store the new attribute value
+                cache[attr_name] = new_attr_val
+                # Recompute the property
+                new_val = prop(instance)
+                cache[prop_key] = new_val
+
+            return cache[prop_key]
+        return inner
+    return outer
+
+
+def check_arithmetic_compatibility(func):
+    """
+    A decorator to check if an arithmetic operation can
+    be performed between a map instance and some other operation.
+    """
+    @wraps(func)
+    def inner(instance, value):
+        # Import here to avoid circular imports
+        from sunpy.map import GenericMap
+
+        # This is explicit because it is expected that users will try to do this. This raises
+        # a different error because it is expected that this type of operation will be supported
+        # in future releases.
+        if isinstance(value, GenericMap):
+            return NotImplemented
+        try:
+            # We want to support operations between numbers and array-like objects. This includes
+            # floats, ints, lists (of the aforementioned), arrays, quantities. This test acts as
+            # a proxy for these possible inputs. If it can be cast to a unitful quantity, we can
+            # do arithmetic with it. Broadcasting or unit mismatches are handled later in the
+            # actual operations by numpy and astropy respectively.
+            _ = u.Quantity(value, copy=False)
+        except TypeError:
+            return NotImplemented
+        return func(instance, value)
+    return inner

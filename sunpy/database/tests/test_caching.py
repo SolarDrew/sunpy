@@ -3,13 +3,11 @@
 # This module was developed with funding provided by
 # the Google Summer of Code (2013).
 
-from __future__ import absolute_import
-
 from collections import deque
 
 import pytest
 
-from sunpy.database.caching import BaseCache, LRUCache, LFUCache
+from sunpy.database.caching import BaseCache, LFUCache, LRUCache
 
 
 def test_custom_cache():

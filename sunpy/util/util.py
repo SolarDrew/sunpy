@@ -1,55 +1,33 @@
 """
-General utility functions.
+This module provides general utility functions.
 """
-
-from __future__ import absolute_import, division, print_function
-
 import os
-from itertools import count
+import hashlib
+import inspect
+from shutil import get_terminal_size
+from itertools import chain, count
+from collections import UserList
 
-import numpy as np
-
-from sunpy.extern import six
-from sunpy.extern.six.moves import map, zip
-
-__all__ = ['to_signed', 'unique', 'print_table', 'replacement_filename',
-           'merge', 'common_base', 'minimal_pairs', 'expand_list',
-           'expand_list_generator']
-
-
-def to_signed(dtype):
-    """
-    Return dtype that can hold data of passed dtype but is signed.
-    Raise ValueError if no such dtype exists.
-
-    Parameters
-    ----------
-    dtype : `numpy.dtype`
-        dtype whose values the new dtype needs to be able to represent.
-
-    Returns
-    -------
-    `numpy.dtype`
-
-    """
-    if dtype.kind == "u":
-        if dtype.itemsize == 8:
-            raise ValueError("Cannot losslessly convert uint64 to int.")
-        dtype = "int{0:d}".format(min(dtype.itemsize * 2 * 8, 64))
-    return np.dtype(dtype)
+__all__ = ['unique', 'replacement_filename', 'expand_list',
+           'expand_list_generator', 'dict_keys_same', 'hash_file', 'get_width',
+           'get_keywords', 'get_set_methods']
 
 
 def unique(itr, key=None):
     """
-    not documented yet
+    Return only unique elements of a sequence.
 
     Parameters
     ----------
-    itr : iterable
-        Object to be iterated over
+    itr : `iterable`
+        Any iterable sequence.
+    key : `function`, optional
+        A function to apply to each element in the iterable. Defaults to `None`.
 
-    key : object
-        not documented yet
+    Returns
+    -------
+    `set`:
+        A `set` of each unique element.
     """
     items = set()
     if key is None:
@@ -65,117 +43,22 @@ def unique(itr, key=None):
                 items.add(x)
 
 
-def print_table(lst, colsep=' ', linesep='\n'):
-    width = [max(map(len, col)) for col in zip(*lst)]
-    return linesep.join(
-        colsep.join(col.ljust(n) for n, col in zip(width, row)) for row in lst)
+def replacement_filename(path: str):
+    """
+    Return a replacement path if input path is currently in use.
 
-
-def minimal_pairs(one, other):
-    """ Find pairs of values in one and other with minimal distance.
-    Assumes one and other are sorted in the same sort sequence.
+    Enumerates until an unused filename is found, e.g., "foo.fits" becomes
+    "foo.0.fits", if that is used, "foo.1.fits" and so on.
 
     Parameters
     ----------
-    one, other : sequence
-        Sequence of scalars to find pairs from.
+    path : `str`
+        A string path.
 
     Returns
     -------
-    `tuple`
-         Pairs of values in `one` and `other` with minimal distance
-    """
-    lbestdiff = bestdiff = bestj = besti = None
-    for i, freq in enumerate(one):
-        lbestj = bestj
-
-        bestdiff, bestj = None, None
-        for j, o_freq in enumerate(other[lbestj:]):
-            j = lbestj + j if lbestj else j
-            diff = abs(freq - o_freq)
-            if bestj is not None and diff > bestdiff:
-                break
-
-            if bestj is None or bestdiff > diff:
-                bestj = j
-                bestdiff = diff
-
-        if lbestj is not None and lbestj != bestj:
-            yield (besti, lbestj, lbestdiff)
-            besti = i
-            lbestdiff = bestdiff
-        elif lbestdiff is None or bestdiff < lbestdiff:
-            besti = i
-            lbestdiff = bestdiff
-
-    yield (besti, bestj, lbestdiff)
-
-
-DONT = object()
-
-
-def find_next(one, other, pad=DONT):
-    """
-    Given two sorted sequences one and other, for every element
-    in one, return the one larger than it but nearest to it in other.
-    If no such exists and pad is not DONT, return value of pad as "partner".
-    """
-    n = 0
-    for elem1 in one:
-        for elem2 in other[n:]:
-            n += 1
-            if elem2 > elem1:
-                yield elem1, elem2
-                break
-        else:
-            if pad is not DONT:
-                yield elem1, pad
-
-
-def common_base(objs):
-    """
-    Find class that every item of objs is an instance of.
-    """
-    for cls in objs[0].__class__.__mro__:
-        if all(isinstance(obj, cls) for obj in objs):
-            break
-    return cls
-
-
-def merge(items, key=(lambda x: x)):
-    """
-    Given sorted lists of iterables, return new iterable that returns
-    elements of all iterables sorted with respect to key.
-    """
-    state = {}
-    for item in map(iter, items):
-        try:
-            first = next(item)
-        except StopIteration:
-            continue
-        else:
-            state[item] = (first, key(first))
-
-    while state:
-        for item, (value, tk) in six.iteritems(state):
-            # Value is biggest.
-            if all(tk >= k for it, (v, k) in six.iteritems(state)
-                   if it is not item):
-                yield value
-                break
-        try:
-            n = next(item)
-            state[item] = (n, key(n))
-        except StopIteration:
-            del state[item]
-
-
-def replacement_filename(path):
-    """
-    Return replacement path for already used path. Enumerates
-    until an unused filename is found. E.g., "/home/florian/foo.fits"
-    becomes "/home/florian/foo.0.fits", if that is used
-    "/home/florian/foo.1.fits", etc.
+    `str`:
+        A string path.
     """
     if not os.path.exists(path):
         return path
@@ -191,11 +74,12 @@ def replacement_filename(path):
 
 def expand_list(inp):
     """
-    Expand a list of lists.
+    Expand a list of lists or tuples.
 
     Parameters
     ----------
-    inp : `list`
+    inp : `list`, `tuple`, `collections.UserList`
+        The iterable to expand.
 
     Returns
     -------
@@ -204,16 +88,186 @@ def expand_list(inp):
 
     References
     ----------
-    Taken from :https://stackoverflow.com/questions/2185822/expanding-elements-in-a-list/2185971#2185971
-
+    * https://stackoverflow.com/questions/2185822/expanding-elements-in-a-list/2185971#2185971
     """
     return [item for item in expand_list_generator(inp)]
 
 
 def expand_list_generator(inp):
     for item in inp:
-        if type(item) in [list, tuple]:
-            for nested_item in expand_list_generator(item):
-                yield nested_item
+        if isinstance(item, (tuple, list, UserList)):
+            yield from expand_list_generator(item)
         else:
             yield item
+
+
+def partial_key_match(key, dictionary):
+    """
+    Return value/values from a dictionary based on a partial key.
+
+    Each element of the partial key is matched against the keys of the dictionary and
+    if a partial match is found the value of the key is returned.
+
+    Even a partial match works here i.e even if the key matches partially a value is returned.
+
+    Parameters
+    ----------
+    key : `tuple`
+        A tuple containing the partial key.
+    dictionary : `dict`
+        The target dictionary from which we want to retrieve the value based on the partial key.
+
+    Yields
+    ------
+    value
+        The value of the matched key.
+
+    References
+    ----------
+    * https://stackoverflow.com/questions/18893624/partial-match-dictionary-keyof-tuples-in-python
+
+    Examples
+    --------
+    >>> d = {('abc','def','ghi') : 1, ('abc', 'def', 'xyz') : 2, ('pqr', 'lmn', 'tuv') : 3}
+    >>> list(partial_key_match(('abc', 'def', None), d))
+        [1, 2]
+    """
+    for k, v in dictionary.items():
+        if all(k1 == k2 or k2 is None for k1, k2 in zip(k, key)):
+            yield v
+
+
+def dict_keys_same(list_of_dicts):
+    """
+    Makes sure that a list of dictionaries all have the same keys.
+
+    If a key is missing, it will be added but with a value of None.
+
+    Parameters
+    ----------
+    list_of_dicts : `list` of `dict`
+          A list containing each dictonary to parse.
+
+    Returns
+    ------
+    `list`
+        The list with each dict updated.
+
+    References
+    ----------
+    * https://stackoverflow.com/questions/10482439/make-sure-all-dicts-in-a-list-have-the-same-keys
+
+    Examples
+    --------
+    >>> l = [{'x': 42}, {'x': 23, 'y': 5}]
+    >>> dict_keys_same(l)
+        [{'x': 42, 'y': None}, {'x': 23, 'y': 5}]
+    """
+    all_keys = set(chain.from_iterable(list_of_dicts))
+    for d in list_of_dicts:
+        d.update({key: None for key in all_keys if key not in d})
+    return list_of_dicts
+
+
+def hash_file(path):
+    """
+    Returns the SHA-256 hash of a file.
+
+    Parameters
+    ----------
+    path : `str`
+        The path of the file to be hashed.
+
+    Returns
+    -------
+    `str`
+        SHA-256 hash of the file.
+
+    References
+    ----------
+    * https://stackoverflow.com/a/22058673
+    """
+    BUF_SIZE = 65536
+    sha256 = hashlib.sha256()
+
+    with open(path, 'rb') as f:
+        while True:
+            data = f.read(BUF_SIZE)
+            if not data:
+                break
+            sha256.update(data)
+
+    return sha256.hexdigest()
+
+
+def get_width():
+    """
+    Gets the width of the current terminal.
+    Accounts for if the 'COLUMNS' environmental variable is set.
+
+    Returns
+    -------
+    `int`
+        Width of the terminal you are in.
+        Works for IPython notebooks and normal terminals.
+    """
+    width = os.environ.get("COLUMNS", None)
+    if width:
+        width = int(width)
+    else:
+        width, _ = get_terminal_size()
+    return width
+
+
+def get_keywords(func):
+    """
+    Returns a set of keyword names from ``func``'s signature.
+    Recursive if ``func`` is a list of functions and methods.
+
+    Parameters
+    ----------
+    func : function or method or `list`
+        Function or method (or list of those) to extract a
+        set of accepted keyword arguments for.
+
+    Returns
+    -------
+    keywords : `set`
+        A set of accepted keyword arguments.
+    """
+    if isinstance(func, list):
+        keywords = set()
+        for f in func:
+            keywords.update(get_keywords(f))
+        return keywords
+    sig = inspect.signature(func)
+    keywords = {param.name for param in sig.parameters.values()
+                if param.default is not inspect.Parameter.empty}
+    return keywords
+
+
+def get_set_methods(obj):
+    """
+    Returns a set of keyword names that can be handled by
+    an object's ``set_...`` methods.
+
+    Parameters
+    ----------
+    obj : `object`
+        Matplotlib object such as `~matplotlib.image.AxesImage`
+        to extract handled keyword arguments for.
+
+    Returns
+    -------
+    keywords : `set`
+        A set of accepted keyword arguments.
+
+    Notes
+    -----
+    See :meth:`matplotlib.artist.Artist.update` for an example
+    of Matplotlib relying on this capability.
+    """
+    return {
+        m[4:] for m in dir(obj)
+        if m.startswith('set_') and callable(getattr(obj, m, None))
+    }

@@ -4,9 +4,7 @@ Source type-dependencies.
 Helioviewer JPEG2000 files have stretched images compared to the FITS data.
 
 """
-from __future__ import absolute_import, print_function, division
 from astropy.visualization import LinearStretch
-# pylint: disable=W0221,W0222,E1121
 
 __author__ = "Jack Ireland"
 __email__ = "jack.ireland@nasa.gov"
@@ -16,18 +14,17 @@ __all__ = ['from_helioviewer_project', 'source_stretch']
 
 def from_helioviewer_project(meta):
     """
-    Test determining if the MapMeta object contains Helioviewer Project sourced
-    data.
+    Test determining if the given metadata contains Helioviewer Project sourced data.
 
     Parameters
     ----------
-    meta : `~sunpy.map.MapMeta`
+    meta : `~astropy.utils.metadata.MetaData`
+        The metadata to parse.
 
     Returns
     -------
     If the data of the map comes from the Helioviewer Project, then True is
-    returned.  If not, False is returned.
-
+    returned. If not, False is returned.
     """
     return 'helioviewer' in meta.keys()
 
@@ -38,7 +35,8 @@ def source_stretch(meta, fits_stretch):
 
     Parameters
     ----------
-    meta : `~sunpy.map.MapMeta`
+    meta : `~astropy.utils.metadata.MetaData`
+        The metadata to parse.
     fits_stretch : `~astropy.visualization.BaseStretch`
         Image stretching function used when the source image data comes from a
         FITS file.

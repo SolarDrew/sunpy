@@ -3,35 +3,44 @@
 # This module was developed with funding provided by
 # the Google Summer of Code (2013).
 
-from __future__ import absolute_import
-
-import glob
 import os
-import os.path
+import glob
 import shutil
+import os.path
+import configparser
 
 import pytest
 import sqlalchemy
+from parfive.downloader import Downloader
+from parfive.results import Results
 
 from astropy import units
+from astropy.utils.exceptions import AstropyUserWarning
 
 import sunpy
-from sunpy.database import Database, EntryAlreadyAddedError,\
-    EntryAlreadyStarredError, EntryAlreadyUnstarredError, NoSuchTagError,\
-    EntryNotFoundError, TagAlreadyAssignedError, disable_undo, split_database
-from sunpy.database.tables import DatabaseEntry, Tag, FitsHeaderEntry,\
-    FitsKeyComment, JSONDump
-from sunpy.database.commands import EmptyCommandStackError, NoSuchEntryError
-from sunpy.database.caching import LRUCache, LFUCache
-from sunpy.database import attrs
-from sunpy.net import vso, hek
-from sunpy.data.test.waveunit import waveunitdir
-from sunpy.io import fits
-from sunpy.extern.six.moves import range
-from sunpy.extern.six.moves import configparser
-from sunpy.net import Fido, attrs as net_attrs
-
 import sunpy.data.test
+from sunpy.data.test.waveunit import waveunitdir
+from sunpy.database import (
+    Database,
+    EntryAlreadyAddedError,
+    EntryAlreadyStarredError,
+    EntryAlreadyUnstarredError,
+    EntryNotFoundError,
+    NoSuchTagError,
+    PartialFetchError,
+    TagAlreadyAssignedError,
+    attrs,
+    disable_undo,
+    split_database,
+    tables,
+)
+from sunpy.database.caching import LFUCache, LRUCache
+from sunpy.database.commands import EmptyCommandStackError, NoSuchEntryError
+from sunpy.database.tables import DatabaseEntry, FitsHeaderEntry, FitsKeyComment, JSONDump, Tag
+from sunpy.io import fits
+from sunpy.net import Fido
+from sunpy.net import attrs as net_attrs
+from sunpy.net import hek, vso
 
 testpath = sunpy.data.test.rootdir
 RHESSI_IMAGE = os.path.join(testpath, 'hsi_image_20101016_191218.fits')
@@ -65,42 +74,43 @@ def fido_search_result():
     # A search query with responses from all instruments
     # No JSOC query
     return Fido.search(
-        net_attrs.Time("2012/1/1", "2012/1/2"),
-        net_attrs.Instrument('lyra') | net_attrs.Instrument('eve') |
+        net_attrs.Time("2012/1/1", "2012/1/1 12:00:00"),
+        net_attrs.Instrument('lyra') & net_attrs.Level.two | net_attrs.Instrument('eve') |
         net_attrs.Instrument('XRS') | net_attrs.Instrument('noaa-indices') |
         net_attrs.Instrument('noaa-predict') |
         (net_attrs.Instrument('norh') & net_attrs.Wavelength(17*units.GHz)) |
-        net_attrs.Instrument('rhessi') |
-        (net_attrs.Instrument('EVE') & net_attrs.Level(0))
-        )
+        (net_attrs.Instrument('rhessi') & net_attrs.Physobs("summary_lightcurve"))
+    )
 
 
 @pytest.fixture
 def query_result():
     return vso.VSOClient().search(
-        vso.attrs.Time('20130801T200000', '20130801T200030'),
-        vso.attrs.Instrument('PLASTIC'))
+        net_attrs.Time('20130801T200000', '20130801T200030'),
+        net_attrs.Instrument('PLASTIC'),
+        response_format="legacy")
 
 
 @pytest.fixture
 def download_qr():
     return vso.VSOClient().search(
-        vso.attrs.Time('2012-03-29', '2012-03-29'),
-        vso.attrs.Instrument('AIA'))
+        net_attrs.Time('2020-03-29', '2020-03-29'),
+        net_attrs.Instrument('AIA'),
+        response_format="legacy")
 
 
 @pytest.fixture
 def empty_query():
     return [
-        vso.attrs.Time((2012, 7, 3), (2012, 7, 4)),
-        vso.attrs.Instrument('EIT')]
+        net_attrs.Time((2012, 7, 3), (2012, 7, 4)),
+        net_attrs.Instrument('EIT')]
 
 
 @pytest.fixture
 def download_query():
     return [
-        vso.attrs.Time((2013, 5, 19, 2), (2013, 5, 19, 2), (2013, 5, 19, 2)),
-        vso.attrs.Instrument('VIRGO') | vso.attrs.Instrument('SECCHI')]
+        net_attrs.Time((2013, 5, 19, 2), (2013, 5, 19, 2), (2013, 5, 19, 2)),
+        net_attrs.Instrument('VIRGO') | net_attrs.Instrument('SECCHI')]
 
 
 @pytest.fixture
@@ -140,7 +150,7 @@ def test_tags_unique(database):
     database.add(entry)
     database.commit()
     entry.tags.append(Tag('foo'))
-    with pytest.raises(sqlalchemy.orm.exc.FlushError):
+    with pytest.raises((sqlalchemy.exc.SAWarning, sqlalchemy.orm.exc.FlushError, sqlalchemy.exc.IntegrityError)):
         database.commit()
 
 
@@ -269,7 +279,7 @@ def test_tag_duplicates_before_adding(database):
     database.tag(entry2, 'tag')
     database.add(entry1)
     database.add(entry2)
-    with pytest.raises(sqlalchemy.orm.exc.FlushError):
+    with pytest.raises((sqlalchemy.exc.SAWarning, sqlalchemy.orm.exc.FlushError, sqlalchemy.exc.IntegrityError)):
         database.commit()
 
 
@@ -392,7 +402,7 @@ def test_unstar_undo(database):
 
 def test_add_many(database):
     assert len(database) == 0
-    database.add_many((DatabaseEntry() for _ in range(5)))
+    database.add_many(DatabaseEntry() for _ in range(5))
     assert len(database) == 5
     database.undo()
     with pytest.raises(EmptyCommandStackError):
@@ -437,13 +447,56 @@ def test_add_already_existing_entry_ignore(database):
 @pytest.mark.remote_data
 def test_add_entry_from_hek_qr(database):
     hek_res = hek.HEKClient().search(
-        hek.attrs.Time('2011/08/09 07:23:56', '2011/08/09 07:24:00'),
+        net_attrs.Time('2020/08/09 07:23:56', '2020/08/09 08:23:56'),
         hek.attrs.EventType('FL'))
     assert len(database) == 0
     database.add_from_hek_query_result(hek_res)
-    # This number loves to change, so we are just going to test that it's added
-    # *something*
-    assert len(database) > 1
+    assert len(database) == 90
+
+
+@pytest.mark.remote_data
+def test_hek_query_download(monkeypatch, database, tmpdir):
+    assert len(database) == 0
+    records = ['94_1331820530-1331820530', '94_1331820542-1331820542',
+               '94_1331820554-1331820554', '94_1331820566-1331820566',
+               '94_1331820578-1331820578', '94_1331820590-1331820590',
+               '94_1331820602-1331820602', '94_1331820614-1331820614',
+               '94_1331820626-1331820626', '94_1331820638-1331820638']
+
+    def mock_parfive_download(obj, *args, **kwargs):
+
+        assert obj.queued_downloads == 10
+
+        queue = obj.http_queue
+        if not isinstance(queue, list):
+            queue = list(queue._queue)
+        obj_records = []
+
+        for item in queue:
+            url = item.keywords['url']
+            obj_records.append(url[-24:])
+
+        assert obj_records == records
+
+        result = Results()
+        result.append(str(tmpdir))
+        return result
+
+    def mock_entries_from_dir(*args, **kwargs):
+        for i in range(10):
+            yield DatabaseEntry()
+
+    monkeypatch.setattr(Downloader, "download", mock_parfive_download)
+    monkeypatch.setattr(tables, "entries_from_dir", mock_entries_from_dir)
+
+    query = hek.HEKClient().search(
+        net_attrs.Time('2019/03/10 14:40:10', '2019/04/11 16:40:50'),
+        hek.attrs.EventType('FL')
+    )
+
+    database.download_from_hek_query_result(query[4], path=str(tmpdir))
+
+    assert len(database) == 10
 
 
 def num_entries_from_vso_query(db, query, path=None, file_pattern='',
@@ -575,21 +628,21 @@ def test_add_entries_from_qr_ignore_duplicates(database, query_result):
 def test_add_entry_fido_search_result(database, fido_search_result):
     assert len(database) == 0
     database.add_from_fido_search_result(fido_search_result)
-    assert len(database) == 65
+    assert len(database) == 35
     database.undo()
     assert len(database) == 0
     database.redo()
-    assert len(database) == 65
+    assert len(database) == 35
 
 
 @pytest.mark.remote_data
 def test_add_entries_from_fido_search_result_JSOC_client(database):
     assert len(database) == 0
     search_result = Fido.search(
-        net_attrs.jsoc.Time('2014-01-01T00:00:00', '2014-01-01T01:00:00'),
+        net_attrs.Time('2014-01-01T00:00:00', '2014-01-01T01:00:00'),
         net_attrs.jsoc.Series('hmi.m_45s'),
         net_attrs.jsoc.Notify("sunpy@sunpy.org")
-        )
+    )
     with pytest.raises(ValueError):
         database.add_from_fido_search_result(search_result)
 
@@ -598,7 +651,7 @@ def test_add_entries_from_fido_search_result_JSOC_client(database):
 def test_add_entries_from_fido_search_result_duplicates(database, fido_search_result):
     assert len(database) == 0
     database.add_from_fido_search_result(fido_search_result)
-    assert len(database) == 65
+    assert len(database) == 35
     with pytest.raises(EntryAlreadyAddedError):
         database.add_from_fido_search_result(fido_search_result)
 
@@ -607,14 +660,15 @@ def test_add_entries_from_fido_search_result_duplicates(database, fido_search_re
 def test_add_entries_from_fido_search_result_ignore_duplicates(database, fido_search_result):
     assert len(database) == 0
     database.add_from_fido_search_result(fido_search_result)
-    assert len(database) == 65
+    assert len(database) == 35
     database.add_from_fido_search_result(fido_search_result, True)
-    assert len(database) == 2*65
+    assert len(database) == 2*35
 
 
 def test_add_fom_path(database):
     assert len(database) == 0
-    database.add_from_dir(waveunitdir)
+    with pytest.warns(AstropyUserWarning, match='File may have been truncated'):
+        database.add_from_dir(waveunitdir)
     assert len(database) == 4
     database.undo()
     assert len(database) == 0
@@ -623,16 +677,19 @@ def test_add_fom_path(database):
 
 
 def test_add_fom_path_duplicates(database):
-    database.add_from_dir(waveunitdir)
+    with pytest.warns(AstropyUserWarning, match='File may have been truncated'):
+        database.add_from_dir(waveunitdir)
     assert len(database) == 4
-    with pytest.raises(EntryAlreadyAddedError):
+    with pytest.raises(EntryAlreadyAddedError), pytest.warns(AstropyUserWarning, match='File may have been truncated'):
         database.add_from_dir(waveunitdir)
 
 
 def test_add_fom_path_ignore_duplicates(database):
-    database.add_from_dir(waveunitdir)
+    with pytest.warns(AstropyUserWarning, match='File may have been truncated'):
+        database.add_from_dir(waveunitdir)
     assert len(database) == 4
-    database.add_from_dir(waveunitdir, ignore_already_added=True)
+    with pytest.warns(AstropyUserWarning, match='File may have been truncated'):
+        database.add_from_dir(waveunitdir, ignore_already_added=True)
     assert len(database) == 8
 
 
@@ -951,8 +1008,8 @@ def test_fetch_separate_filenames():
     db = Database('sqlite:///')
 
     download_query = [
-        vso.attrs.Time('2012-08-05', '2012-08-05 00:00:05'),
-        vso.attrs.Instrument('AIA')
+        net_attrs.Time('2012-08-05', '2012-08-05 00:00:05'),
+        net_attrs.Instrument('AIA')
     ]
 
     tmp_test_dir = os.path.join(
@@ -983,10 +1040,26 @@ def test_fetch_separate_filenames():
 
 
 @pytest.mark.remote_data
+def test_fetch_partial_download(mocker, database, download_query, tmpdir):
+    results = Results()
+    results.append("successful_download.fits")
+    results.add_error("unsuccessful_download.fits", "https://timeout.invalid", "Timeout Error")
+    mocker.patch("sunpy.net.vso.VSOClient.fetch", return_value=results)
+    path = str(tmpdir.join('{file}.fits'))
+    with pytest.raises(PartialFetchError) as e:
+        database.fetch(*download_query, path=path)
+    successes, failures = str(e.value).split("Errors: ")
+    assert "successful_download.fits" in successes
+    assert "unsuccessful_download.fits" in failures
+    assert "https://timeout.invalid" in failures
+    assert "Timeout Error" in failures
+
+
+@pytest.mark.remote_data
 def test_disable_undo(database, download_query, tmpdir):
     entry = DatabaseEntry()
     with disable_undo(database) as db:
-        db.set_cache_size(5)
+        db.set_cache_size(10)
         db.add(entry)
         db.commit()
         db.remove(entry)
@@ -1046,11 +1119,11 @@ def split_function_database():
 def test_split_database(split_function_database, database):
     # Send all entries with instrument='EIA' to destination_database
     split_function_database, database = split_database(
-        split_function_database, database, vso.attrs.Instrument('EIA'))
+        split_function_database, database, net_attrs.Instrument('EIA'))
 
     observed_source_entries = split_function_database.search(
-        vso.attrs.Provider('xyz'), sortby='id')
-    observed_destination_entries = database.search(vso.attrs.Provider('xyz'))
+        net_attrs.Provider('xyz'), sortby='id')
+    observed_destination_entries = database.search(net_attrs.Provider('xyz'))
 
     assert observed_source_entries == [
         DatabaseEntry(id=1, instrument='RHESSI', provider='xyz'),

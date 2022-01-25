@@ -1,51 +1,24 @@
 """SOHO Map subclass definitions"""
-from __future__ import absolute_import, print_function, division
-
-# pylint: disable=W0221,W0222,E1101,E1121
-
-__author__ = "Keith Hughitt"
-__email__ = "keith.hughitt@nasa.gov"
 
 import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib import colors
 
-from astropy.units import Quantity
+import astropy.units as u
+from astropy.coordinates import CartesianRepresentation, HeliocentricMeanEcliptic
 from astropy.visualization import PowerStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
 
-from sunpy.map import GenericMap
-from sunpy.sun import constants
-from sunpy.sun import sun
+from sunpy import log
+from sunpy.map.mapbase import GenericMap, SpatialPair
 from sunpy.map.sources.source_type import source_stretch
-from sunpy.coordinates import get_sunearth_distance
+from sunpy.time import parse_time
 
-__all__ = ['EITMap', 'LASCOMap', 'MDIMap']
-
-
-def _dsunAtSoho(date, rad_d, rad_1au=None):
-    """Determines the distance to the Sun from SOhO following
-    d_{\sun,Object} =
-            D_{\sun\earth} \frac{\tan(radius_{1au}[rad])}{\tan(radius_{d}[rad])}
-    though tan x ~ x for x << 1
-    d_{\sun,Object} =
-            D_{\sun\eart} \frac{radius_{1au}[rad]}{radius_{d}[rad]}
-    since radius_{1au} and radius_{d} are dividing each other we can use [arcsec]
-    instead.
-
-    ---
-    TODO: Does this apply just to observations on the same Earth-Sun line?
-    If not it can be moved outside here.
-    """
-    if not rad_1au:
-        rad_1au = sun.solar_semidiameter_angular_size(date)
-    dsun = get_sunearth_distance(date) * constants.au * (rad_1au / rad_d)
-    # return scalar value not astropy.quantity
-    return dsun.value
+__all__ = ['EITMap', 'LASCOMap', 'MDIMap', 'MDISynopticMap']
 
 
 class EITMap(GenericMap):
-    """SOHO EIT Image Map.
+    """
+    SOHO EIT Image Map.
 
     SOHO EIT is an extreme ultraviolet (EUV) imager able to image the solar
     transition region and inner corona in four selected bandpasses,
@@ -59,28 +32,50 @@ class EITMap(GenericMap):
     * `SOHO Mission Page <https://sohowww.nascom.nasa.gov/>`_
     * `SOHO EIT Instrument Page <https://umbra.nascom.nasa.gov/eit/>`_
     * `SOHO EIT User Guide <https://umbra.nascom.nasa.gov/eit/eit_guide/>`_
+
     """
 
     def __init__(self, data, header, **kwargs):
-        GenericMap.__init__(self, data, header, **kwargs)
+        super().__init__(data, header, **kwargs)
 
-        # Fill in some missing info
-        self.meta['detector'] = "EIT"
-        self.meta['waveunit'] = "Angstrom"
-        self._fix_dsun()
         self._nickname = self.detector
-        self.plot_settings['cmap'] = plt.get_cmap(self._get_cmap_name())
-        self.plot_settings['norm'] = ImageNormalize(stretch=source_stretch(self.meta, PowerStretch(0.5)))
+        self.plot_settings['cmap'] = self._get_cmap_name()
+        self.plot_settings['norm'] = ImageNormalize(
+            stretch=source_stretch(self.meta, PowerStretch(0.5)), clip=False)
+
+    @property
+    def spatial_units(self):
+        """
+        If not present in CUNIT{1,2} keywords, defaults to arcsec.
+        """
+        return SpatialPair(u.Unit(self.meta.get('cunit1', 'arcsec')),
+                           u.Unit(self.meta.get('cunit2', 'arcsec')))
+
+    @property
+    def waveunit(self):
+        """
+        If WAVEUNIT FITS keyword isn't present, deafults to Angstrom.
+        """
+        unit = self.meta.get("waveunit", "Angstrom") or "Angstrom"
+        return u.Unit(unit)
+
+    @property
+    def detector(self):
+        return "EIT"
 
     @property
     def rsun_obs(self):
-        """
-        Returns the solar radius as measured by EIT in arcseconds.
-        """
-        return Quantity(self.meta['solar_r'] * self.meta['cdelt1'], 'arcsec')
+        return u.Quantity(self.meta['solar_r'] * self.meta['cdelt1'], 'arcsec')
 
-    def _fix_dsun(self):
-        self.meta['dsun_obs'] = _dsunAtSoho(self.date, self.rsun_obs)
+    @property
+    def _supported_observer_coordinates(self):
+        return [(('hec_x', 'hec_y', 'hec_z'), {'x': self.meta.get('hec_x'),
+                                               'y': self.meta.get('hec_y'),
+                                               'z': self.meta.get('hec_z'),
+                                               'unit': u.km,
+                                               'representation_type': CartesianRepresentation,
+                                               'frame': HeliocentricMeanEcliptic})
+                ] + super()._supported_observer_coordinates
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
@@ -89,7 +84,8 @@ class EITMap(GenericMap):
 
 
 class LASCOMap(GenericMap):
-    """SOHO LASCO Image Map
+    """
+    SOHO LASCO Image Map
 
     The Large Angle and Spectrometric COronagraph (LASCO) is a set of three
     Lyot-type coronagraphs (C1, C2, and C3) that image the solar corona from
@@ -107,36 +103,49 @@ class LASCOMap(GenericMap):
     """
 
     def __init__(self, data, header, **kwargs):
+        super().__init__(data, header, **kwargs)
 
-        GenericMap.__init__(self, data, header, **kwargs)
+        self.plot_settings['cmap'] = 'soholasco{det!s}'.format(det=self.detector[1])
+        self.plot_settings['norm'] = ImageNormalize(
+            stretch=source_stretch(self.meta, PowerStretch(0.5)), clip=False)
 
-        self.meta['CUNIT1'] = self.meta['CUNIT1'].lower()
-        self.meta['CUNIT2'] = self.meta['CUNIT2'].lower()
+    @property
+    def spatial_units(self):
+        return SpatialPair(u.Unit(self.meta.get('cunit1').lower()),
+                           u.Unit(self.meta.get('cunit2').lower()))
 
-        # Fill in some missing or broken info
-        # Test if change has already been applied
-        if 'T' not in self.meta['date-obs']:
-            datestr = "{date}T{time}".format(date=self.meta.get('date-obs',
-                                                                self.meta.get('date_obs')
-                                                                ),
-                                             time=self.meta.get('time-obs',
-                                                                self.meta.get('time_obs')
-                                                                )
-                                             )
-            self.meta['date-obs'] = datestr
+    @property
+    def rotation_matrix(self):
+        # For Helioviewer images, clear rotation metadata, as these have already been rotated.
+        # Also check that all CROTAn keywords exist to make sure that it's an untouched
+        # Helioviewer file.
+        if ('helioviewer' in self.meta and
+                'crota' in self.meta and
+                'crota1' in self.meta and
+                'crota2' in self.meta):
+            log.debug("LASCOMap: Ignoring CROTAn keywords "
+                      "because the map has already been rotated by Helioviewer")
+            return np.identity(2)
+        else:
+            return super().rotation_matrix
 
-        # If non-standard Keyword is present, correct it too, for compatibility.
-        if 'date_obs' in self.meta:
-            self.meta['date_obs'] = self.meta['date-obs']
-        self._nickname = self.instrument + "-" + self.detector
-        self.plot_settings['cmap'] = plt.get_cmap('soholasco{det!s}'.format(det=self.detector[1]))
-        self.plot_settings['norm'] = ImageNormalize(stretch=source_stretch(self.meta, PowerStretch(0.5)))
+    @property
+    def date(self):
+        date = self.meta.get('date-obs', self.meta.get('date_obs'))
+        # Incase someone fixes the header
+        if 'T' in date:
+            return parse_time(date)
+
+        time = self.meta.get('time-obs', self.meta.get('time_obs'))
+        return parse_time(f"{date}T{time}")
+
+    @property
+    def nickname(self):
+        filter = self.meta.get('filter', '')
+        return f'{self.instrument}-{self.detector} {filter}'
 
     @property
     def measurement(self):
-        """
-        Returns the type of data taken.
-        """
         # TODO: This needs to do more than white-light.  Should give B, pB, etc.
         return "white-light"
 
@@ -172,53 +181,110 @@ class MDIMap(GenericMap):
     """
 
     def __init__(self, data, header, **kwargs):
+        super().__init__(data, header, **kwargs)
 
-        GenericMap.__init__(self, data, header, **kwargs)
-
-        # Fill in some missing or broken info
-        self.meta['detector'] = "MDI"
-        self._fix_dsun()
-        self._nickname = self.detector + " " + self.measurement
         vmin = np.nanmin(self.data)
         vmax = np.nanmax(self.data)
-        if abs(vmin) > abs(vmax):
-            self.plot_settings['norm'] = colors.Normalize(-vmin, vmin)
+        threshold = max([abs(vmin), abs(vmax)])
+        self.plot_settings['norm'] = colors.Normalize(-threshold, threshold)
+
+    @property
+    def _date_obs(self):
+        if 'T' in self.meta['date-obs']:
+            # Helioviewer MDI files have the full date in DATE_OBS, but we stil
+            # want to let normal FITS files use DATE-OBS
+            return parse_time(self.meta['date-obs'])
         else:
-            self.plot_settings['norm'] = colors.Normalize(-vmax, vmax)
+            return parse_time(self.meta['date_obs'])
+
+    @property
+    def spatial_units(self):
+        """
+        If not present in CUNIT{1,2} keywords, defaults to arcsec.
+        """
+        return SpatialPair(u.Unit(self.meta.get('cunit1', 'arcsec')),
+                           u.Unit(self.meta.get('cunit2', 'arcsec')))
+
+    @staticmethod
+    def _is_mdi_map(header):
+        return header.get('instrume') == 'MDI' or header.get('camera') == 'MDI'
+
+    @staticmethod
+    def _is_synoptic_map(header):
+        return 'Synoptic Chart' in header.get('CONTENT', '')
+
+    @property
+    def _supported_observer_coordinates(self):
+        return [(('obs_l0', 'obs_b0', 'obs_dist'), {'lon': self.meta.get('obs_l0'),
+                                                    'lat': self.meta.get('obs_b0'),
+                                                    'radius': self.meta.get('obs_dist'),
+                                                    'unit': (u.deg, u.deg, u.AU),
+                                                    'frame': "heliographic_carrington"}),
+                ] + super()._supported_observer_coordinates
+
+    @property
+    def instrument(self):
+        return "MDI"
+
+    @property
+    def waveunit(self):
+        """
+        Always assumed to be Angstrom.
+        """
+        return "Angstrom"
 
     @property
     def measurement(self):
         """
-        Returns the type of data in the map.
+        Returns the measurement type.
         """
-        return "magnetogram" if self.meta.get('dpc_obsr', " ").find('Mag') != -1 else "continuum"
-
-    def _fix_dsun(self):
-        """ Solar radius in arc-seconds at 1 au
-            previous value radius_1au = 959.644
-            radius = constants.average_angular_size
-            There are differences in the keywords in the test FITS data and in
-            the Helioviewer JPEG2000 files.  In both files, MDI stores the
-            the radius of the Sun in image pixels, and a pixel scale size.
-            The names of these keywords are different in the FITS versus the
-            JP2 file.  The code below first looks for the keywords relevant to
-            a FITS file, and then a JPEG2000 file.  For more information on
-            MDI FITS header keywords please go to http://soi.stanford.edu/,
-            http://soi.stanford.edu/data/ and
-            http://soi.stanford.edu/magnetic/Lev1.8/ .
-        """
-        scale = self.meta.get('xscale', self.meta.get('cdelt1'))
-        radius_in_pixels = self.meta.get('r_sun', self.meta.get('radius'))
-        radius = scale * radius_in_pixels
-        self.meta['radius'] = radius
-
-        if not radius:
-            # radius = sun.angular_size(self.date)
-            self.meta['dsun_obs'] = constants.au
-        else:
-            self.meta['dsun_obs'] = _dsunAtSoho(self.date, radius)
+        return self.meta.get('CONTENT', '')
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Determines if header corresponds to an MDI image"""
-        return header.get('instrume') == 'MDI' or header.get('camera') == 'MDI'
+        return cls._is_mdi_map(header) and not cls._is_synoptic_map(header)
+
+
+class MDISynopticMap(MDIMap):
+    """
+    SOHO MDI synoptic magnetogram Map.
+
+    See the docstring of `MDIMap` for information on the MDI instrument.
+    """
+    @property
+    def date(self):
+        """
+        Image observation time.
+
+        This is taken from the 'DATE-OBS' or 'T_OBS' keywords.
+        """
+        time = self._get_date('date-obs')
+        if time is None:
+            return self._get_date('t_obs')
+
+    @property
+    def spatial_units(self):
+        cunit1 = self.meta['cunit1']
+        if cunit1 == 'Degree':
+            cunit1 = 'deg'
+
+        cunit2 = self.meta['cunit2']
+        if cunit2 == 'Sine Latitude':
+            cunit2 = 'deg'
+
+        return SpatialPair(u.Unit(cunit1), u.Unit(cunit2))
+
+    @property
+    def scale(self):
+        if self.meta['cunit2'] == 'Sine Latitude':
+            # Since, this map uses the cylindrical equal-area (CEA) projection,
+            # the spacing should be modified to 180/pi times the original value
+            # Reference: Section 5.5, Thompson 2006
+            return SpatialPair(np.abs(self.meta['cdelt1']) * self.spatial_units[0] / u.pixel,
+                               180 / np.pi * self.meta['cdelt2'] * u.deg / u.pixel)
+
+    @classmethod
+    def is_datasource_for(cls, data, header, **kwargs):
+        """Determines if header corresponds to an MDI image"""
+        return cls._is_mdi_map(header) and cls._is_synoptic_map(header)

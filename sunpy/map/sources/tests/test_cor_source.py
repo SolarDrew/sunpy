@@ -6,18 +6,23 @@ This particular test file pertains to CORMap.
 import os
 import glob
 
-from sunpy.map.sources.stereo import CORMap
-from sunpy.map import Map
+import astropy.units as u
+
 import sunpy.data.test
+from sunpy.map import Map
+from sunpy.map.sources.stereo import CORMap
 
 path = sunpy.data.test.rootdir
 fitspath = glob.glob(os.path.join(path, "cor1_20090615_000500_s4c1A.fts"))
 cor = Map(fitspath)
 
 # COR Tests
-def test_fitstoEIT():
+
+
+def test_fitstoCOR():
     """Tests the creation of CORMap using FITS."""
     assert isinstance(cor, CORMap)
+
 
 def test_is_datasource_for():
     """Test the is_datasource_for method of CORMap.
@@ -25,10 +30,22 @@ def test_is_datasource_for():
     can be a MetaDict object."""
     assert cor.is_datasource_for(cor.data, cor.meta)
 
+
 def test_measurement():
     """Tests the measurement property of the CORMap object."""
     assert cor.measurement == "white-light"
 
+
 def test_observatory():
     """Tests the observatory property of the CORMap object."""
     assert cor.observatory == "STEREO A"
+
+
+def test_norm_clip():
+    # Tests that the default normalizer has clipping disabled
+    assert not cor.plot_settings['norm'].clip
+
+
+def test_wcs():
+    # Smoke test that WCS is valid and can transform from pixels to world coordinates
+    cor.pixel_to_world(0*u.pix, 0*u.pix)

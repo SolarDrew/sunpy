@@ -1,25 +1,25 @@
 .. _units-coordinates-sunpy:
 
-Units and Coordinates in SunPy
-==============================
+Units and Coordinates in sunpy
+******************************
 
 This section of the guide will talk about representing physical units and
-physical coordinates in SunPy. SunPy makes use of :ref:`Astropy <astropy:astropy-coordinates>` for
+physical coordinates in sunpy. sunpy makes use of :ref:`Astropy <astropy:astropy-coordinates>` for
 both these tasks.
 
 
-Units in SunPy
---------------
+Units in sunpy
+==============
 
-All functions in SunPy that accept or return numbers associated with physcial
+All functions in sunpy that accept or return numbers associated with physcial
 quantities accept and return `~astropy.units.Quantity` objects. These objects
-represent a number (or an array of numbers) and a unit. This means SunPy is
+represent a number (or an array of numbers) and a unit. This means sunpy is
 always explicit about the units associated with a value. Quantities and units
 are powerful tools for keeping track of variables with a physical meaning and
 make it straightforward to convert the same physical quantity into different units.
 
 In this section of the guide we will give a quick introduction to `astropy.units`
-and then demostrate how to use units with SunPy.
+and then demostrate how to use units with sunpy.
 
 To use units we must first import them from Astropy. To save on typing we usually
 import units as ``u``::
@@ -50,7 +50,7 @@ unit systems::
   >>> length.cgs
   <Quantity 1000. cm>
 
-Probably most usefully, `~astropy.units.Quantity` objects will propogate units
+Probably most usefully, `~astropy.units.Quantity` objects will propagate units
 through arithmetic operations when appropriate::
 
   >>> distance_start = 10 * u.mm
@@ -73,7 +73,7 @@ However, operations which do not make physical sense for the units specified wil
 
 
 Quantities as function arguments
---------------------------------
+================================
 
 An extremely useful addition to the base functionality of Quanitities is the ``@u.quantity_input`` decorator.
 This allows you to specify required units for function arguments to ensure that the calculation within that
@@ -86,8 +86,7 @@ we might want the distance and time as inputs::
 However, this requires that length and time both have the appropriate units. We therefore want to use
 `~astropy.units.quantity_input` to enforce this, here we use
 `function annotations <https://python-3-for-scientists.readthedocs.io/en/latest/python3_features.html#function-annotations>`__
-to specify the units (this is a Python 3.5+ feature, see the
-`~astropy.units.quantity_input` documentation for more details and Python 2 instructions)::
+to specify the units.
 
   >>> @u.quantity_input
   ... def speed(length: u.m, time: u.s):
@@ -102,13 +101,14 @@ an error will be raised stating that the units are incorrect or missing::
   astropy.units.core.UnitsError: Argument 'time' to function 'speed' must be in units convertible to 's'.
 
   >>> speed(1*u.m, 10)
+  ...
   Traceback (most recent call last):
   ...
-  TypeError: Argument 'time' to function 'speed' has no 'unit' attribute. You may want to pass in an astropy Quantity instead.
+  TypeError: Argument 'time' to function 'speed' has no 'unit' attribute. ... pass in an astropy Quantity instead.
 
 Note that the units of the inputs do not have to be exactly the same as those in the function definition, as long
 as they can be converted to those units. So for instance, passing in a time in minutes still works even though we
-specified `time: u.s`::
+specified ``time: u.s``::
 
   >>> speed(1*u.m, 1*u.minute)
   <Quantity 1. m / min>
@@ -126,11 +126,11 @@ have the same units on the output from this function::
   >>> speed(1*u.m, 1*u.minute)
   <Quantity 0.01666667 m / s>
 
-Physical Coordinates in SunPy
------------------------------
+Physical Coordinates in sunpy
+=============================
 
 In much the same way as `~astropy.units` are used for representing physical
-quantities, SunPy uses `astropy.coordinates` to represent points in physical
+quantities, sunpy uses `astropy.coordinates` to represent points in physical
 space. This applies to both points in 3D space and projected coordinates in
 images.
 
@@ -139,7 +139,7 @@ The astropy coordinates module is primarily used through the
 
   >>> from astropy.coordinates import SkyCoord
 
-To enable the use of the solar physics specific frames defined in SunPy we also
+To enable the use of the solar physics specific frames defined in sunpy we also
 need to import them::
 
   >>> from sunpy.coordinates import frames
@@ -149,37 +149,36 @@ A SkyCoord object to represent a point on the Sun can then be created::
   >>> c = SkyCoord(70*u.deg, -30*u.deg, obstime="2017-08-01",
   ...              frame=frames.HeliographicStonyhurst)
   >>> c
-  <SkyCoord (HeliographicStonyhurst: obstime=2017-08-01 00:00:00): (lon, lat, radius) in (deg, deg, km)
-      (70., -30., 695508.)>
+  <SkyCoord (HeliographicStonyhurst: obstime=2017-08-01T00:00:00.000, rsun=695700.0 km): (lon, lat) in deg
+      (70., -30.)>
 
 This `~astropy.coordinates.SkyCoord` object can then be transformed to any
-other coordinate frame defined either in Astropy or SunPy, for example::
+other coordinate frame defined either in Astropy or sunpy, for example::
 
-  >>> c.transform_to(frames.Helioprojective)
-  <SkyCoord (Helioprojective: obstime=2017-08-01 00:00:00, rsun=695508.0 km, observer=<HeliographicStonyhurst Coordinate (obstime=2017-08-01 00:00:00): (lon, lat, radius) in (deg, deg, AU)
-      (0., 5.78339799, 1.01496923)>): (Tx, Ty, distance) in (arcsec, arcsec, km)
-      (769.74997696, -498.75932128, 1.51668819e+08)>
+  >>> c.transform_to(frames.Helioprojective(observer="earth"))
+  <SkyCoord (Helioprojective: obstime=2017-08-01T00:00:00.000, rsun=695700.0 km, observer=<HeliographicStonyhurst Coordinate for 'earth'>): (Tx, Ty, distance) in (arcsec, arcsec, km)
+      (769.96270814, -498.89715922, 1.51668773e+08)>
 
 
 It is also possible to convert three dimensional positions to astrophysical
-frames defined in Astropy, for example `~astropy.coordimates.ICRS`.
+frames defined in Astropy, for example `~astropy.coordinates.ICRS`.
 
   >>> c.transform_to('icrs')
   <SkyCoord (ICRS): (ra, dec, distance) in (deg, deg, km)
-    (49.85053118, 0.05723938, 1417577.02975451)>
+    (49.84856512, 0.05394699, 1417743.94689472)>
 
 
 
 Observer Location
-^^^^^^^^^^^^^^^^^
+-----------------
 
 Both `~sunpy.coordinates.frames.Helioprojective` and
 `~sunpy.coordinates.frames.Heliocentric` frames are defined based on the
 position of the observer. Therefore to transform either of these frames to a
-different frame the location of the observer must be known. The default
-observer is the Earth. A different observer can be specified for a coordinate
-object using the ``observer`` argument to `~astropy.coordinates.SkyCoord`.
-For SunPy to calculate the location of the Earth, it must know the time for
+different frame the location of the observer must be known.
+The observer can be specified for a coordinate object using the ``observer``
+argument to `~astropy.coordinates.SkyCoord`.  For sunpy to calculate the
+location of Earth or another solar-system body, it must know the time for
 which the coordinate is valid; this is specified with the ``obstime`` argument.
 
 Using the observer location it is possible to convert a coordinate as seen by
@@ -191,42 +190,53 @@ one observer to a coordinate seen by another::
 
   >>> hpc1.transform_to(frames.Helioprojective(observer="venus",
   ...                                          obstime="2017-07-26"))
-  <SkyCoord (Helioprojective: obstime=2017-07-26 00:00:00, rsun=695508.0 km, observer=<HeliographicStonyhurst Coordinate (obstime=2017-07-26 00:00:00): (lon, lat, radius) in (deg, deg, AU)
-    (77.03547231, 3.17032536, 0.72510629)>): (Tx, Ty, distance) in (arcsec, arcsec, km)
-    (-1285.11970265, 106.17983302, 1.08317783e+08)>
+  <SkyCoord (Helioprojective: obstime=2017-07-26T00:00:00.000, rsun=695700.0 km, observer=<HeliographicStonyhurst Coordinate for 'venus'>): (Tx, Ty, distance) in (arcsec, arcsec, AU)
+      (-1285.47497992, 106.20918654, 0.72405937)>
 
 
-Using Coordinates with SunPy Map
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Using Coordinates with sunpy Map
+--------------------------------
 
-SunPy Map uses coordinates to specify locations on the image, and to plot
-overlays on plots of maps. When a Map is created, a coordinate frame is
-constructed from the header information. This can be accessed using
-``.coordinate_frame``::
+.. plot::
+   :include-source:
 
-  >>> import sunpy.map
-  >>> from sunpy.data.sample import AIA_171_IMAGE  # doctest: +REMOTE_DATA
-  >>> m = sunpy.map.Map(AIA_171_IMAGE) # doctest: +REMOTE_DATA
-  >>> m.coordinate_frame  # doctest: +REMOTE_DATA
-    <Helioprojective Frame (obstime=2011-06-07 06:33:02.770000, rsun=696000000.0 m, observer=<HeliographicStonyhurst Coordinate (obstime=2011-06-07 06:33:02.770000): (lon, lat, radius) in (deg, deg, m)
-        (0., 0.048591, 1.51846026e+11)>)>
+   sunpy Map uses coordinates to specify locations on the image, and to plot
+   overlays on plots of maps. When a Map is created, a coordinate frame is
+   constructed from the header information. This can be accessed using
+   ``.coordinate_frame``:
 
-This can be used when creating a `~astropy.coordinates.SkyCoord` object to set
-the coordinate system to that image::
+   >>> import sunpy.map
+   >>> from sunpy.data.sample import AIA_171_IMAGE   # doctest: +REMOTE_DATA
+   >>> m = sunpy.map.Map(AIA_171_IMAGE)  # doctest: +REMOTE_DATA
+   >>> m.coordinate_frame  # doctest: +REMOTE_DATA
+   <Helioprojective Frame (obstime=2011-06-07T06:33:02.770, rsun=696000.0 km, observer=<HeliographicStonyhurst Coordinate (obstime=2011-06-07T06:33:02.770, rsun=696000.0 km): (lon, lat, radius) in (deg, deg, m)
+       (-0.00406308, 0.04787238, 1.51846026e+11)>)>
 
-  >>> SkyCoord(100 * u.arcsec, 10*u.arcsec, frame=m.coordinate_frame) # doctest: +REMOTE_DATA
-  <SkyCoord (Helioprojective: obstime=2011-06-07 06:33:02.770000, rsun=696000000.0 m, observer=<HeliographicStonyhurst Coordinate (obstime=2011-06-07 06:33:02.770000): (lon, lat, radius) in (deg, deg, m)
-      (0., 0.048591, 1.51846026e+11)>): (Tx, Ty) in arcsec
-      (100., 10.)>
+   This can be used when creating a `~astropy.coordinates.SkyCoord` object to set
+   the coordinate system to that image:
 
-This `~astropy.coordinates.SkyCoord` object could then be used to plot a point
-on top of the map::
+   >>> from astropy.coordinates import SkyCoord
+   >>> import astropy.units as u
+   >>> c = SkyCoord(100 * u.arcsec, 10*u.arcsec, frame=m.coordinate_frame)  # doctest: +REMOTE_DATA
+   >>> c  # doctest: +REMOTE_DATA
+   <SkyCoord (Helioprojective: obstime=2011-06-07T06:33:02.770, rsun=696000.0 km, observer=<HeliographicStonyhurst Coordinate (obstime=2011-06-07T06:33:02.770, rsun=696000.0 km): (lon, lat, radius) in (deg, deg, m)
+       (-0.00406308, 0.04787238, 1.51846026e+11)>): (Tx, Ty) in arcsec
+       (100., 10.)>
 
-  >>> import matplotlib.pyplot as plt
+   The `~astropy.coordinates.SkyCoord` object can be converted to a PixelPair object
+   using `~sunpy.map.GenericMap.world_to_pixel`:
 
-  >>> ax = plt.subplot(projection=m)  # doctest: +REMOTE_DATA
-  >>> m.plot()  # doctest: +SKIP
-  >>> ax.plot_coord(c, 'o')  # doctest: +SKIP
+   >>> pixel_obj = m.world_to_pixel(c) # doctest: +REMOTE_DATA
+   >>> pixel_obj # doctest: +REMOTE_DATA
+   PixelPair(x=<Quantity 551.7680511 pix>, y=<Quantity 515.18266871 pix>)
 
-For more information on coordinates see :ref:`sunpy-coordinates` section of
-the :ref:`reference`.
+   This `~astropy.coordinates.SkyCoord` object could also be used to plot a point
+   on top of the map:
+
+   >>> import matplotlib.pyplot as plt
+   >>> ax = plt.subplot(projection=m)  # doctest: +SKIP
+   >>> m.plot()  # doctest: +SKIP
+   <matplotlib.image.AxesImage object at ...>
+   >>> _ = ax.plot_coord(c, 'o')  # doctest: +SKIP
+
+For more information on coordinates see :ref:`sunpy-coordinates` section of the :ref:`reference`.

@@ -1,8 +1,7 @@
-from __future__ import absolute_import
 
-import numpy as np
+import astropy.units as u
 
-from sunpy.map import GenericMap
+from sunpy.map.mapbase import GenericMap, SpatialPair
 
 __all__ = ['SJIMap']
 
@@ -33,22 +32,40 @@ class SJIMap(GenericMap):
 
     References
     ----------
-    * `IRIS Mission Page <http://iris.lmsal.com>`_
+    * `IRIS Mission Page <https://iris.lmsal.com>`_
     * `IRIS Analysis Guide <https://iris.lmsal.com/itn26/itn26.pdf>`_
     * `IRIS Instrument Paper <https://doi.org/10.1007/s11207-014-0485-y>`_
     """
+    @property
+    def detector(self):
+        return "SJI"
 
-    def __init__(self, data, header, **kwargs):
-        GenericMap.__init__(self, data, header, **kwargs)
+    @property
+    def spatial_units(self):
+        """
+        If not present in CUNIT{1,2} keywords, defaults to arcsec.
+        """
+        return SpatialPair(u.Unit(self.meta.get('cunit1', 'arcsec')),
+                           u.Unit(self.meta.get('cunit2', 'arcsec')))
 
-        self.meta['detector'] = "SJI"
-        self.meta['waveunit'] = "Angstrom"
-        self.meta['wavelnth'] = header['twave1']
+    @property
+    def waveunit(self):
+        """
+        Taken from WAVEUNIT, or if not present defaults to Angstrom.
+        """
+        return u.Unit(header.get('waveunit', "Angstrom"))
+
+    @property
+    def wavelength(self):
+        """
+        Taken from WAVELNTH, or if not present TWAVE1.
+        """
+        return header.get('wavelnth', header.get('twave1')) * self.waveunit
 
     @classmethod
     def is_datasource_for(cls, data, header, **kwargs):
         """Determines if header corresponds to an IRIS SJI image"""
-        tele = header.get('TELESCOP', '').startswith('IRIS')
-        obs = header.get('INSTRUME', '').startswith('SJI')
+        tele = str(header.get('TELESCOP', '')).startswith('IRIS')
+        obs = str(header.get('INSTRUME', '')).startswith('SJI')
         level = header.get('lvl_num') == 1
         return tele and obs

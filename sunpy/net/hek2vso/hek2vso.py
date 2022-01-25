@@ -1,24 +1,21 @@
-# -*- coding: utf-8 -*-
 # Author:   Michael Malocha <mjm159@humboldt.edu>
 # Last Edit:  August 10th, 2013
 #
 # This module was developed with funding from the GSOC 2013 summer of code
-#
-#pylint: disable=W0142
-
 """
 This module translates the results of a HEK query into a VSO query
 and returns the results from the VSO query to the user.
 """
 
-from __future__ import absolute_import
-
 import sys
+
+from tqdm import tqdm
+
 from astropy import units
 
-from sunpy.net import hek
-from sunpy.net import vso
-from sunpy.util.progressbar import TTYProgressBar
+from sunpy.net import attrs as a
+from sunpy.net import hek, vso
+from sunpy.net.hek import HEKTable
 
 __author__ = 'Michael Malocha'
 __version__ = 'Aug 10th, 2013'
@@ -36,28 +33,26 @@ def translate_results_to_query(results):
 
     Parameters
     ----------
-    results : `sunpy.net.hek.hek.Response` or list of `sunpy.net.hek.hek.Response`
+    results : `sunpy.net.hek.hek.HEKRow` or `sunpy.net.hek.hek.HEKTable`
         The HEK results from a HEK query to be translated.
 
     Examples
     --------
+    >>> from sunpy.net import attrs as a
     >>> from sunpy.net.hek import hek, HEKClient
     >>> from sunpy.net.hek2vso import hek2vso, H2VClient
     >>> h = HEKClient()  # doctest: +REMOTE_DATA
     >>> h2v = H2VClient()  # doctest: +REMOTE_DATA
-    >>> q = h.search(hek.attrs.Time('2011/08/09 07:23:56',
-    ...             '2011/08/09 12:40:29'), hek.attrs.EventType('FL'))  # doctest: +REMOTE_DATA
+    >>> q = h.search(a.Time('2011/08/09 07:23:56',
+    ...             '2011/08/09 12:40:29'), a.hek.EventType('FL'))  # doctest: +REMOTE_DATA
     >>> len(q)  # doctest: +REMOTE_DATA
     19
 
     >>> hek2vso.translate_results_to_query(q[0])  # doctest: +REMOTE_DATA
-    [[<Time(datetime.datetime(2011, 8, 8, 1, 30, 4), datetime.datetime(2011, 8, 10, 0, 0, 4), None)>, <Source('SDO')>, <Instrument('HEK')>, <Wavelength(0.0, 0.0, 'Angstrom')>]]
-
-    >>> hek2vso.translate_results_to_query(q)   # doctest: +SKIP
-    [[<Time(datetime.datetime(2011, 8, 8, 1, 30, 4), datetime.datetime(2011, 8, 10, 0, 0, 4), None)>, <Source(u'SDO')>, <Instrument(u'AIA')>, <Wave(210.99999999999997, 210.99999999999997, 'Angstrom')>], ..., [<Time(datetime.datetime(2011, 8, 9, 8, 1, 21), datetime.datetime(2011, 8, 9, 8, 16, 45), None)>, <Source(u'SDO')>, <Instrument(u'AIA')>, <Wave(303.99999999999994, 303.99999999999994, 'Angstrom')>]]
+    [[<sunpy.net.attrs.Time(2011-08-08 01:30:04.000, 2011-08-10 00:00:04.000)>, <sunpy.net.attrs.Source(SDO: The Solar Dynamics Observatory.) object at ...>, <sunpy.net.attrs.Instrument(HMI: Helioseismic and Magnetic Imager) object at ...>, <sunpy.net.attrs.Wavelength(6172.999999999998, 6172.999999999998, 'Angstrom')>]]
     """
     queries = []
-    if type(results) is list:
+    if isinstance(results, HEKTable):
         for result in results:
             query = vso_attribute_parse(result)
             queries.append(query)
@@ -76,35 +71,35 @@ def vso_attribute_parse(phrase):
 
     Parameters
     ----------
-    phrase : `dict` containing a `sunpy.net.hek.hek.Response`.
+    phrase : `sunpy.net.hek.hek.HEKRow`.
         The single HEK result to be parsed for VSO attribute data.
 
     Examples
     --------
+    >>> from sunpy.net import attrs as a
     >>> from sunpy.net.hek import hek, HEKClient
     >>> from sunpy.net.hek2vso import hek2vso, H2VClient
     >>> h = HEKClient()  # doctest: +REMOTE_DATA
     >>> h2v = H2VClient()  # doctest: +REMOTE_DATA
-    >>> q = h.search(hek.attrs.Time('2011/08/09 07:23:56', '2011/08/09 12:40:29'), hek.attrs.EventType('FL'))  # doctest: +REMOTE_DATA
+    >>> q = h.search(a.Time('2011/08/09 07:23:56', '2011/08/09 12:40:29'), a.hek.EventType('FL'))  # doctest: +REMOTE_DATA
     >>> len(q)  # doctest: +REMOTE_DATA
     19
-
     >>> hek2vso.vso_attribute_parse(q[9])  # doctest: +REMOTE_DATA
-    [<Time(datetime.datetime(2011, 8, 9, 7, 22, 38), datetime.datetime(2011, 8, 9, 8, 32, 2), None)>, <Source('SDO')>, <Instrument('AIA')>, <Wavelength(210.99999999999997, 210.99999999999997, 'Angstrom')>]
+    [<sunpy.net.attrs.Time(2011-08-09 07:22:38.000, 2011-08-09 08:32:02.000)>, <sunpy.net.attrs.Source(SDO: The Solar Dynamics Observatory.) object at ...>, <sunpy.net.attrs.Instrument(AIA: Atmospheric Imaging Assembly) object at ...>, <sunpy.net.attrs.Wavelength(210.99999999999997, 210.99999999999997, 'Angstrom')>]
     """
     try:
-        query = [vso.attrs.Time(phrase['event_starttime'],
-                                phrase['event_endtime']),
-                 vso.attrs.Source(phrase['obs_observatory']),
-                 vso.attrs.Instrument(phrase['obs_instrument'])]
+        query = [a.Time(phrase['event_starttime'],
+                        phrase['event_endtime']),
+                 a.Source(phrase['obs_observatory']),
+                 a.Instrument(phrase['obs_instrument'])]
         avg_wave_len = phrase['obs_meanwavel'] * units.Unit(phrase['obs_wavelunit'])
-        query.append(vso.attrs.Wavelength(avg_wave_len, avg_wave_len))
+        query.append(a.Wavelength(avg_wave_len, avg_wave_len))
     except (KeyError, TypeError):
         raise TypeError("'{dtype!s}' is an improper data type".format(dtype=type(phrase)))
     return query
 
 
-class H2VClient(object):
+class H2VClient:
     """
     Class to handle HEK to VSO translations
 
@@ -144,10 +139,9 @@ class H2VClient(object):
 
         Examples
         --------
-        >>> from sunpy.net import hek, hek2vso
+        >>> from sunpy.net import attrs as a, hek, hek2vso
         >>> h2v = hek2vso.H2VClient()  # doctest: +REMOTE_DATA
-        >>> q = h2v.full_query((hek.attrs.Time('2011/08/09 07:23:56', '2011/08/09 12:40:29'),
-        ...                    hek.attrs.EventType('FL')))  # doctest: +REMOTE_DATA
+        >>> q = h2v.full_query((a.Time('2011/08/09 07:23:56', '2011/08/09 12:40:29'), a.hek.EventType('FL')))  # doctest: +REMOTE_DATA
         """
         self._quick_clean()
         if progress:
@@ -158,7 +152,7 @@ class H2VClient(object):
         return self.translate_and_query(self.hek_results,
                                         limit=limit, progress=progress)
 
-    def translate_and_query(self, hek_results, limit=None, progress=False):
+    def translate_and_query(self, hek_results, limit=None, progress=False, vso_response_format="table"):
         """
         Translates HEK results, makes a VSO query, then returns the results.
 
@@ -168,11 +162,11 @@ class H2VClient(object):
 
         Parameters
         ----------
-        hek_results : `sunpy.net.hek.hek.Response` or list of such Responses
+        hek_results : `sunpy.net.hek.hek.HEKRow` or `sunpy.net.hek.hek.HEKTable`
             The results from a HEK query in the form of a list.
         limit : int
             An approximate limit to the desired number of VSO results.
-        progress : Boolean
+        progress : bool
             A flag to turn off the progress bar, defaults to "off"
 
         Examples
@@ -182,29 +176,19 @@ class H2VClient(object):
         >>> tstart = '2011/08/09 07:23:56'
         >>> tend = '2011/08/09 12:40:29'
         >>> event_type = 'FL'
-        >>> q = h.search(hek.attrs.Time(tstart, tend), hek.attrs.EventType(event_type))  # doctest: +REMOTE_DATA
+        >>> q = h.search(a.Time(tstart, tend), a.hek.EventType(event_type))  # doctest: +REMOTE_DATA
         >>> h2v = hek2vso.H2VClient()  # doctest: +REMOTE_DATA
         >>> res = h2v.translate_and_query(q)  # doctest: +REMOTE_DATA
         """
         vso_query = translate_results_to_query(hek_results)
-        result_size = len(vso_query)
-        if progress:
-            sys.stdout.write('\rQuerying VSO webservice')
-            sys.stdout.flush()
-            pbar = TTYProgressBar(result_size)
 
-        for query in vso_query:
-            temp = self.vso_client.search(*query)
+        for query in tqdm(vso_query, unit="records"):
+            temp = self.vso_client.search(*query, response_format=vso_response_format)
             self.vso_results.append(temp)
             self.num_of_records += len(temp)
             if limit is not None:
                 if self.num_of_records >= limit:
                     break
-            if progress:
-                pbar.poke()
-
-        if progress:
-            pbar.finish()
 
         return self.vso_results
 

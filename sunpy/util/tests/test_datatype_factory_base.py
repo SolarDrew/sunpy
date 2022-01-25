@@ -1,14 +1,14 @@
-from __future__ import absolute_import, division, print_function
-
 import pytest
 
-from sunpy.util.datatype_factory_base import BasicRegistrationFactory
-from sunpy.util.datatype_factory_base import NoMatchError
-from sunpy.util.datatype_factory_base import MultipleMatchError
-from sunpy.util.datatype_factory_base import ValidationFunctionError
+from sunpy.util.datatype_factory_base import (
+    BasicRegistrationFactory,
+    MultipleMatchError,
+    NoMatchError,
+    ValidationFunctionError,
+)
 
 
-class BaseWidget(object):
+class BaseWidget:
     def __init__(self, *args, **kwargs):
         pass
 
@@ -63,7 +63,7 @@ class MissingClassMethodDifferentValidationWidget(BaseWidget):
         return kwargs.get('style') == 'missing-different'
 
 
-class TestBasicRegistrationFactory(object):
+class TestBasicRegistrationFactory:
 
     def test_default_factory(self):
 

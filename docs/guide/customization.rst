@@ -1,32 +1,52 @@
 .. _customizing-sunpy:
 
-**********************
-Customizing SunPy
-**********************
+*****************
+Customizing sunpy
+*****************
 
 .. _customizing-with-sunpyrc-files:
 
 The :file:`sunpyrc` file
-=============================
+========================
 
-Sunpy uses a :file:`sunpyrc` configuration file to customize certain
-properties. You can control a number of key features of SunPy such as
-where your data will download to. SunPy looks for :file:`sunpyrc` in two
-locations, in the following order:
+The sunpy core package uses a :file:`sunpyrc` configuration file to customize
+certain properties. You can control a number of key features of sunpy such as
+where your data will download to. sunpy looks for the ``sunpyrc`` file
+in a platform specific directory, which you can see the path for by running::
 
-1. :file:`.sunpy/sunpyrc`, for the user's default customizations.
-2. :file:`{INSTALL}/sunpy/data/sunpyrc`. You can find where SunPy is installed
-   by printing out `sunpy.__file__` after importing SunPy.
-
-To display where the currently active :file:`sunpyrc` file was loaded from,
-one can do the following::
-
-  >>> import sunpy # doctest: +SKIP
-  >>> sunpy.print_config()   # doctest: +SKIP
+  >>> import sunpy
+  >>> sunpy.print_config()  # doctest: +SKIP
+  FILES USED:
+    ...
+  <BLANKLINE>
+  CONFIGURATION:
+    [general]
+    time_format = %Y-%m-%d %H:%M:%S
+    working_dir = ...
+  <BLANKLINE>
+    [downloads]
+    download_dir = ...
+    remote_data_manager_dir = ...
+    cache_expiry = 10
+    sample_dir = ...
+  <BLANKLINE>
+    [database]
+    url = sqlite:////...
+  <BLANKLINE>
+    [logger]
+    log_level = INFO
+    use_color = True
+    log_warnings = True
+    log_exceptions = False
+    log_to_file = False
+    log_file_level = INFO
+    log_file_format = %(asctime)s, %(origin)s, %(levelname)s, %(message)s
+  <BLANKLINE>
 
 To maintain your own customizations place a copy of the default sunpyrc file
-into :file:`.sunpy`. Do not edit the default file directly as every
-time you install or update SunPy, this file will be overwritten.
+into the *first* path printed above.
+You can use `sunpy.util.config.copy_default_config` to write the default config into the correct place.
+Do not edit the default file directly as every time you install or update sunpy, this file will be overwritten.
 
 See below for the example config file.
 
@@ -37,7 +57,7 @@ Dynamic settings
 
 You can also dynamically change the default settings in a python script or
 interactively from the python shell. All of the settings are stored in a
-Python ConfigParser instance called :data:`sunpy.config`, which is global to
+Python ConfigParser instance called ``sunpy.config``, which is global to
 the sunpy package. Settings can be modified directly, for example::
 
     import sunpy

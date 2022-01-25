@@ -6,15 +6,15 @@
 from datetime import datetime
 
 import pytest
-from astropy import units as u
 
-from sunpy.database.database import Database
+import astropy.units as u
+
 from sunpy.database import tables
-from sunpy.database.attrs import walker, Starred, Tag, Path, DownloadTime,\
-    FitsHeaderEntry
-from sunpy.net.attr import DummyAttr, AttrAnd, AttrOr
+from sunpy.database.attrs import DownloadTime, FitsHeaderEntry, Path, Starred, Tag, walker
+from sunpy.database.database import Database
+from sunpy.net import attrs as a
 from sunpy.net import vso
-from sunpy.extern.six.moves import range
+from sunpy.net.attr import AttrAnd, AttrOr, DummyAttr
 
 
 @pytest.fixture
@@ -49,8 +49,8 @@ def session():
 def vso_session():
     client = vso.VSOClient()
     qr = client.search(
-        vso.attrs.Time((2011, 9, 20, 1), (2011, 9, 20, 2)),
-        vso.attrs.Instrument('RHESSI'))
+        a.Time((2011, 9, 20, 1), (2011, 9, 20, 2)),
+        a.Instrument.rhessi, response_format="legacy")
     entries = tables.entries_from_query_result(qr)
     database = Database('sqlite:///:memory:')
     for entry in entries:
@@ -403,46 +403,80 @@ def test_walker_create_fitsheader_inverted(session):
             id=9, path='/tmp', download_time=datetime(2005, 6, 15, 9))]
 
 
-@pytest.mark.flaky(reruns=5)
 @pytest.mark.remote_data
 def test_walker_create_vso_instrument(vso_session):
-    entries = walker.create(vso.attrs.Instrument('RHESSI'), vso_session)
-    assert entries == [
-        tables.DatabaseEntry(id=1, source=u'RHESSI', provider=u'LSSP',
-            physobs=u'intensity',
-            fileid=u'/hessidata/2011/09/20/hsi_20110920_010920',
-            observation_time_start=datetime(2011, 9, 20, 1, 9, 20),
-            observation_time_end=datetime(2011, 9, 20, 2, 27, 40),
-            instrument=u'RHESSI', size=-1.0, wavemin=0.4132806579880238,
-            wavemax=7.293188082141598e-05),
-        tables.DatabaseEntry(id=2, source=u'RHESSI', provider=u'LSSP',
-            physobs=u'intensity',
-            fileid=u'/hessidata/2011/09/19/hsi_20110919_233340',
-            observation_time_start=datetime(2011, 9, 19, 23, 33, 40),
-            observation_time_end=datetime(2011, 9, 20, 1, 9, 20),
-            instrument=u'RHESSI', size=-1.0, wavemin=0.4132806579880238,
-            wavemax=7.293188082141598e-05)]
+    entries = walker.create(a.Instrument.rhessi, vso_session)
+    expected = [tables.DatabaseEntry(id=1, source=u'RHESSI', provider=u'LSSP',
+                                     physobs=u'intensity',
+                                     fileid=u'/hessidata/2011/09/19/hsi_20110919_233340_002.fits',
+                                     observation_time_start=datetime(2011, 9, 19, 23, 33, 40),
+                                     observation_time_end=datetime(2011, 9, 20, 1, 9, 20),
+                                     instrument=u'RHESSI',
+                                     size=-1.0,
+                                     wavemin=0.4132806579880238,
+                                     wavemax=7.293188082141598e-05),
+                tables.DatabaseEntry(id=2, source=u'RHESSI', provider=u'LSSP',
+                                     physobs=u'intensity',
+                                     fileid=u'/hessidata/2011/09/19/hsi_20110919_233340_002.fits',
+                                     observation_time_start=datetime(2011, 9, 19, 23, 33, 40),
+                                     observation_time_end=datetime(2011, 9, 20, 1, 9, 20),
+                                     instrument=u'RHESSI',
+                                     size=-1.0,
+                                     wavemin=0.4132806579880238,
+                                     wavemax=7.293188082141598e-05),
+                tables.DatabaseEntry(id=1, source=u'RHESSI', provider=u'LSSP',
+                                     physobs=u'intensity',
+                                     fileid=u'/hessidata/2011/09/20/hsi_20110920_010920_001.fits',
+                                     observation_time_start=datetime(2011, 9, 20, 1, 9, 20),
+                                     observation_time_end=datetime(2011, 9, 20, 2, 27, 40),
+                                     instrument=u'RHESSI',
+                                     size=-1.0,
+                                     wavemin=0.41328066144400083,
+                                     wavemax=7.293188143129426e-05),
+                tables.DatabaseEntry(id=2, source=u'RHESSI', provider=u'LSSP',
+                                     physobs=u'intensity',
+                                     fileid=u'/hessidata/2011/09/20/hsi_20110920_010920_001.fits',
+                                     observation_time_start=datetime(2011, 9, 20, 1, 9, 20),
+                                     observation_time_end=datetime(2011, 9, 20, 2, 27, 40),
+                                     instrument=u'RHESSI',
+                                     size=-1.0,
+                                     wavemin=0.41328066144400083,
+                                     wavemax=7.293188143129426e-05)]
+    for e in entries:
+        assert e in expected, str(e)
+
 
 @pytest.mark.remote_data
 def test_walker_create_wave(vso_session):
-    entries = walker.create(vso.attrs.Wavelength(0 * u.AA, 10 * u.AA), vso_session)
+    entries = walker.create(a.Wavelength(0 * u.AA, 10 * u.AA), vso_session)
     assert len(entries) == 2
-    entries = walker.create(vso.attrs.Wavelength(5 * u.AA, 10 * u.AA), vso_session)
+    entries = walker.create(a.Wavelength(5 * u.AA, 10 * u.AA), vso_session)
     assert len(entries) == 0
 
 
-@pytest.mark.flaky(reruns=5)
 @pytest.mark.remote_data
 def test_walker_create_time(vso_session):
-    time = vso.attrs.Time(
+    time = a.Time(
         datetime(2011, 9, 17, 0, 0, 0), datetime(2011, 9, 20, 0, 0, 0))
     entries = walker.create(time, vso_session)
     assert len(entries) == 1
-    assert entries == [
-        tables.DatabaseEntry(id=2, source=u'RHESSI', provider=u'LSSP',
-            physobs=u'intensity',
-            fileid=u'/hessidata/2011/09/19/hsi_20110919_233340',
-            observation_time_start=datetime(2011, 9, 19, 23, 33, 40),
-            observation_time_end=datetime(2011, 9, 20, 1, 9, 20),
-            instrument=u'RHESSI', size=-1.0, wavemin=0.4132806579880238,
-            wavemax=7.293188082141598e-05)]
+    expected = [tables.DatabaseEntry(id=1, source=u'RHESSI', provider=u'LSSP',
+                                     physobs=u'intensity',
+                                     fileid=u'/hessidata/2011/09/19/hsi_20110919_233340_002.fits',
+                                     observation_time_start=datetime(2011, 9, 19, 23, 33, 40),
+                                     observation_time_end=datetime(2011, 9, 20, 1, 9, 20),
+                                     instrument=u'RHESSI',
+                                     size=-1.0,
+                                     wavemin=0.4132806579880238,
+                                     wavemax=7.293188082141598e-05),
+                tables.DatabaseEntry(id=2, source=u'RHESSI', provider=u'LSSP',
+                                     physobs=u'intensity',
+                                     fileid=u'/hessidata/2011/09/19/hsi_20110919_233340_002.fits',
+                                     observation_time_start=datetime(2011, 9, 19, 23, 33, 40),
+                                     observation_time_end=datetime(2011, 9, 20, 1, 9, 20),
+                                     instrument=u'RHESSI',
+                                     size=-1.0,
+                                     wavemin=0.41328066144400083,
+                                     wavemax=7.293188143129426e-05)]
+    for e in entries:
+        assert e in expected, str(e)

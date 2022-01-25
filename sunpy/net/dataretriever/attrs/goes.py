@@ -1,9 +1,14 @@
-from ...vso.attrs import _VSOSimpleAttr
+from sunpy.net.attr import SimpleAttr
 
-__all__ = ['SatelliteNumber']
+__all__ = ["SatelliteNumber"]
 
 
-class SatelliteNumber(_VSOSimpleAttr):
+# Define a custom __dir__ to restrict tab-completion to __all__
+def __dir__():
+    return __all__
+
+
+class SatelliteNumber(SimpleAttr):
     """
     The GOES Satellite Number
     """

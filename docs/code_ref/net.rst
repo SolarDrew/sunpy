@@ -1,67 +1,97 @@
-SunPy net
-=========
+Remote data (`sunpy.net`)
+*************************
 
-SunPy's net submodule contains a lot of different code for accessing various
-solar physics related web services. This submodule contains many layers. Most
-users should use `Fido <sunpy.net.fido_factory.UnifiedDownloaderFactory>`, which
-is an interface to multiple sources including all the sources implemented in
-`~sunpy.net.dataretriever` as well as `~sunpy.net.vso` and `~sunpy.net.jsoc`.
-Fido ~`sunpy.net.fido_factory.UnifiedDownloaderFactory` can be used like so::
+``sunpy.net`` contains a lot of different code for accessing various solar
+physics related web services. This submodule contains many layers. Most users
+should use `~sunpy.net.Fido`, which is an interface to multiple sources
+including all the sources implemented in `~sunpy.net.dataretriever` as well as
+`~sunpy.net.vso` and `~sunpy.net.jsoc`. `~sunpy.net.Fido` can be used like so::
 
     >>> from sunpy.net import Fido, attrs as a
-    >>> results = Fido.search(a.Time("2012/1/1", "2012/1/2"), a.Instrument('lyra'))  # doctest: +REMOTE_DATA
+    >>> results = Fido.search(a.Time("2012/1/1", "2012/1/2"), a.Instrument.lyra)  # doctest: +REMOTE_DATA
     >>> files = Fido.fetch(results)  # doctest: +SKIP
 
 .. automodapi:: sunpy.net
-   :no-heading:
+   :include-all-objects:
+   :headings: =-
+
+.. automodapi:: sunpy.net.attrs
+   :headings: ^"
 
 .. automodapi:: sunpy.net.fido_factory
-
-Dataretriever
--------------
-
-.. automodapi:: sunpy.net.dataretriever
-   :allowed-package-names: sources
-   :headings: ^#
-
-.. automodapi:: sunpy.net.dataretriever.sources
-   :headings: #~
-
+   :headings: ^"
 
 VSO
 ---
 
 .. automodapi:: sunpy.net.vso
-   :headings: ^#
+   :headings: ^"
 
 .. automodapi:: sunpy.net.vso.attrs
-   :headings: #~
+   :headings: ^"
+
+Dataretriever
+-------------
+
+.. automodapi:: sunpy.net.dataretriever
+   :headings: ^"
+
+.. automodapi:: sunpy.net.dataretriever.attrs.goes
+   :headings: ^"
 
 JSOC
 ----
 
 .. automodapi:: sunpy.net.jsoc
-    :headings: ^#
+   :headings: ^"
 
 .. automodapi:: sunpy.net.jsoc.attrs
-    :headings: #~
-
+   :headings: ^"
 
 HEK
 ---
 
 .. automodapi:: sunpy.net.hek
-    :headings: ^#
+   :headings: ^"
+
+.. automodapi:: sunpy.net.hek.attrs
+   :headings: ^"
 
 .. automodapi:: sunpy.net.hek2vso
-    :headings: ^#
+   :headings: ^"
+
+CDAWeb
+------
+
+.. automodapi:: sunpy.net.cdaweb
+   :headings: ^"
 
 
 HELIO
 -----
 
 .. automodapi:: sunpy.net.helio
-    :headings: ^#
+   :headings: ^"
 
-.. automodapi:: sunpy.net.helio.hec
-    :headings: #~
+.. automodapi:: sunpy.net.helio.attrs
+   :headings: ^"
+
+Helioviewer
+-----------
+
+.. automodapi:: sunpy.net.helioviewer
+   :headings: ^"
+
+Internal Classes and Functions
+==============================
+
+These classes and functions are designed to be used to help develop new clients
+for `sunpy.net.Fido`.
+
+.. automodapi:: sunpy.net.base_client
+
+.. automodapi:: sunpy.net.dataretriever.client
+
+.. automodapi:: sunpy.net.attr
+
+.. automodapi:: sunpy.net.scraper
