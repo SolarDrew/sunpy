@@ -7,6 +7,7 @@ from sunpy.util.config import _is_writable_dir, get_and_create_sample_dir
 from sunpy.util.parfive_helpers import Downloader
 
 _BASE_URLS = (
+    'https://github.com/sunpy/data/raw/main/sunpy/v1/',
     'https://github.com/sunpy/sample-data/raw/master/sunpy/v1/',
     'http://data.sunpy.org/sunpy/v1/',
 )
@@ -22,7 +23,7 @@ _BASE_URLS = (
 # the files should include necessary extensions
 _SAMPLE_DATA = {
     # Do roll image first because it's the largest file.
-    "AIA_171_ROLL_IMAGE": "aiacalibim5.fits.gz",
+    "AIA_171_ROLL_IMAGE": "aiacalibim5.fits",
     "HMI_LOS_IMAGE": "HMI20110607_063211_los_lowres.fits",
     "AIA_131_IMAGE": "AIA20110607_063301_0131_lowres.fits",
     "AIA_171_IMAGE": "AIA20110607_063302_0171_lowres.fits",
@@ -31,6 +32,7 @@ _SAMPLE_DATA = {
     "AIA_094_IMAGE": "AIA20110607_063305_0094_lowres.fits",
     "AIA_1600_IMAGE": "AIA20110607_063305_1600_lowres.fits",
     "AIA_193_IMAGE": "AIA20110607_063307_0193_lowres.fits",
+    "AIA_1600_VENUS_IMAGE": "aia_lev1_1600a_2012_06_06t04_07_29_12z_image_lev1_lowres.fits",
     "AIA_193_CUTOUT01_IMAGE": "AIA20110607_063307_0193_cutout.fits",
     "AIA_193_CUTOUT02_IMAGE": "AIA20110607_063931_0193_cutout.fits",
     "AIA_193_CUTOUT03_IMAGE": "AIA20110607_064555_0193_cutout.fits",
@@ -48,6 +50,9 @@ _SAMPLE_DATA = {
     "NORH_TIMESERIES": "tca110607.fits",
     "LOFAR_IMAGE": "LOFAR_70MHZ_20190409_131136.fits",
     "SRS_TABLE": "20110607SRS.txt",
+    "AIA_193_JUN2012": "AIA20120601_000007_0193_lowres.fits",
+    "STEREO_A_195_JUN2012": "20120601_000530_n4eua.fits",
+    "STEREO_B_195_JUN2012": "20120601_000530_n4eub.fits",
 }
 
 # Reverse the dict because we want to use it backwards, but it is nicer to
@@ -74,34 +79,47 @@ def _download_sample_data(base_url, sample_files, overwrite):
         Download results. Will behave like a list of files.
     """
     dl = Downloader(overwrite=overwrite, progress=True, headers={'Accept-Encoding': 'identity'})
+
     for url_file_name, fname in sample_files:
         url = urljoin(base_url, url_file_name)
         dl.enqueue_file(url, filename=fname)
+
     results = dl.download()
     return results
 
 
-def _retry_sample_data(results):
+def _retry_sample_data(results, new_url_base):
     # In case we have a broken file on disk, overwrite it.
     dl = Downloader(overwrite=True, progress=True, headers={'Accept-Encoding': 'identity'})
+
     for err in results.errors:
-        file_name = err.filepath_partial().name
+        file_name = err.url.split("/")[-1]
         log.debug(
             f"Failed to download {_SAMPLE_FILES[file_name]} from {err.url}: {err.exception}")
         # Update the url to a mirror and requeue the file.
-        new_url = urljoin(_BASE_URLS[1], file_name)
+        new_url = urljoin(new_url_base, file_name)
         log.debug(f"Attempting redownload of {_SAMPLE_FILES[file_name]} using {new_url}")
         dl.enqueue_file(new_url, filename=err.filepath_partial)
+
     extra_results = dl.download()
-    for err in extra_results.errors:
-        file_name = err.filepath_partial().name
+
+    # Make a new results object which contains all the successful downloads
+    # from the previous results object and this retry, and all the errors from
+    # this retry.
+    new_results = results + extra_results
+    new_results._errors = extra_results._errors
+    return new_results
+
+
+def _handle_final_errors(results):
+    for err in results.errors:
+        file_name = err.url.split("/")[-1]
         log.debug(f"Failed to download {_SAMPLE_FILES[file_name]} from {err.url}: {err.exception}"
                   )
         log.error(
             f"Failed to download {_SAMPLE_FILES[file_name]} from all mirrors,"
             "the file will not be available."
         )
-    return results + extra_results
 
 
 def download_sample_data(overwrite=False):
@@ -121,6 +139,7 @@ def download_sample_data(overwrite=False):
     else:
         # Creating the directory for sample files to be downloaded
         sampledata_dir = Path(get_and_create_sample_dir())
+
     already_downloaded = []
     to_download = []
     for url_file_name in _SAMPLE_FILES.keys():
@@ -131,11 +150,19 @@ def download_sample_data(overwrite=False):
         else:
             # URL and Filename pairs
             to_download.append((url_file_name, fname))
+
     if to_download:
         results = _download_sample_data(_BASE_URLS[0], to_download, overwrite=overwrite)
     else:
         return already_downloaded
+
     # Something went wrong.
     if results.errors:
-        results = _retry_sample_data(results)
+        for next_url in _BASE_URLS[1:]:
+            results = _retry_sample_data(results, next_url)
+            if not results.errors:
+                break
+        else:
+            _handle_final_errors(results)
+
     return results + already_downloaded

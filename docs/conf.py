@@ -6,23 +6,7 @@ import os
 import sys
 import datetime
 import warnings
-from pkg_resources import get_distribution
 from packaging.version import Version
-
-# -- Check for dependencies ----------------------------------------------------
-doc_requires = get_distribution("sunpy").requires(extras=("docs",))
-missing_requirements = []
-for requirement in doc_requires:
-    try:
-        get_distribution(requirement)
-    except Exception as e:
-        missing_requirements.append(requirement.name)
-if missing_requirements:
-    print(
-        f"The {' '.join(missing_requirements)} package(s) could not be found and "
-        "is needed to build the documentation, please install the 'docs' requirements."
-    )
-    sys.exit(1)
 
 # -- Read the Docs Specific Configuration --------------------------------------
 # This needs to be done before sunpy is imported
@@ -33,6 +17,16 @@ if on_rtd:
     os.environ['LANG'] = 'C'
     os.environ['LC_ALL'] = 'C'
     os.environ['HIDE_PARFIVE_PROGESS'] = 'True'
+
+# -- Check for dependencies ----------------------------------------------------
+from sunpy.util import missing_dependencies_by_extra  # NOQA
+missing_requirements = missing_dependencies_by_extra("sunpy")["docs"]
+if missing_requirements:
+    print(
+        f"The {' '.join(missing_requirements.keys())} package(s) could not be found and "
+        "is needed to build the documentation, please install the 'docs' requirements."
+    )
+    sys.exit(1)
 
 # -- Non stdlib imports --------------------------------------------------------
 import ruamel.yaml as yaml  # NOQA
@@ -66,6 +60,9 @@ warnings.filterwarnings("error", category=SunpyDeprecationWarning)
 warnings.filterwarnings("error", category=SunpyPendingDeprecationWarning)
 warnings.filterwarnings("error", category=MatplotlibDeprecationWarning)
 warnings.filterwarnings("error", category=AstropyDeprecationWarning)
+warnings.filterwarnings("ignore",
+                        message="The `sunpy.io.fits` module is deprecated",
+                        category=SunpyDeprecationWarning)
 
 # -- SunPy Sample Data and Config ----------------------------------------------
 # We set the logger to debug so that we can see any sample data download errors
@@ -116,7 +113,7 @@ extensions = [
     'sunpy.util.sphinx.doctest',
     'sunpy.util.sphinx.generate',
     "sphinxext.opengraph",
-    'sphinx_panels',
+    'sphinx_design',
 ]
 
 # Set automodapi to generate files inside the generated directory
@@ -156,6 +153,9 @@ napoleon_use_rtype = False
 # Disable google style docstrings
 napoleon_google_docstring = False
 
+# Disable the use of param, which prevents a distinct "Other Parameters" section
+napoleon_use_param = False
+
 # Enable nitpicky mode, which forces links to be non-broken
 nitpicky = True
 # This is not used. See docs/nitpick-exceptions file for the actual listing.
@@ -183,10 +183,7 @@ intersphinx_mapping = {
         "https://docs.scipy.org/doc/scipy/reference/",
         (None, "http://www.astropy.org/astropy-data/intersphinx/scipy.inv"),
     ),
-    "matplotlib": (
-        "https://matplotlib.org/",
-        (None, "http://www.astropy.org/astropy-data/intersphinx/matplotlib.inv"),
-    ),
+    "matplotlib": ("https://matplotlib.org/stable", None),
     "aiapy": ("https://aiapy.readthedocs.io/en/stable/", None),
     "astropy": ("https://docs.astropy.org/en/stable/", None),
     "astroquery": ("https://astroquery.readthedocs.io/en/latest/", None),
@@ -197,8 +194,10 @@ intersphinx_mapping = {
     "reproject": ("https://reproject.readthedocs.io/en/stable/", None),
     "skimage": ("https://scikit-image.org/docs/stable/", None),
     "sqlalchemy": ("https://docs.sqlalchemy.org/en/latest/", None),
+    "sunkit_image": ("https://docs.sunpy.org/projects/sunkit-image/en/stable/", None),
     "sunkit_instruments": ("https://docs.sunpy.org/projects/sunkit-instruments/en/stable/", None),
     "zeep": ("https://docs.python-zeep.org/en/stable/", None),
+    "asdf": ("https://asdf.readthedocs.io/en/stable/", None),
 }
 
 # -- Options for HTML output ---------------------------------------------------
@@ -226,7 +225,7 @@ graphviz_dot_args = [
 
 # -- Sphinx Gallery ------------------------------------------------------------
 # JSOC email os env
-os.environ["JSOC_EMAIL"] = "jsoc@cadair.com"
+os.environ["JSOC_EMAIL"] = "nabil.freij@gmail.com"
 sphinx_gallery_conf = {
     'backreferences_dir': os.path.join('generated', 'modules'),
     'filename_pattern': '^((?!skip_).)*$',
@@ -245,14 +244,53 @@ sphinx_gallery_conf = {
     ]),
     'within_subsection_order': ExampleTitleSortKey,
     'gallery_dirs': os.path.join('generated', 'gallery'),
+    'matplotlib_animations': True,
     # Comes from the theme.
-    "default_thumb_file": os.path.join(html_static_path[0], "img", "sunpy_icon_128x128.png"),
+    "default_thumb_file": png_icon,
     'abort_on_example_error': False,
     'plot_gallery': 'True',
     'remove_config_comments': True,
     'doc_module': ('sunpy'),
     'only_warn_on_example_error': True,
 }
+
+# -- Linking to OpenCV docs by using rst_epilog --------------------------------
+try:
+    import requests
+    from bs4 import BeautifulSoup
+
+    base_url = "https://docs.opencv.org"
+
+    # The stable-version docs are the first item in the second list on the main page
+    all_docs = BeautifulSoup(requests.get(base_url).text, 'html.parser')
+    version = all_docs.find_all('ul')[1].li.a.attrs['href'][2:]  # strip leading "./"
+
+    # Find the relative URL to the page for the `cv` namespace
+    stable_docs = BeautifulSoup(requests.get(f"{base_url}/{version}/namespaces.html").text,
+                                'html.parser')
+    cv_namespace = stable_docs.find("a", string="cv").attrs['href']
+
+    # Find the relative URL for warpAffine/filter2D in the `cv` namespace
+    all_cv = BeautifulSoup(requests.get(f"{base_url}/{version}/{cv_namespace}").text,
+                           'html.parser')
+    warpAffine = all_cv.find("a", string="warpAffine").attrs['href'][6:]  # strip leading "../../"
+    filter2D = all_cv.find("a", string="filter2D").attrs['href'][6:]  # strip leading "../../"
+
+    # Construct the full URL for warpAffine/filter2D
+    warpAffine_full = f"{base_url}/{version}/{warpAffine}"
+    filter2D_full = f"{base_url}/{version}/{filter2D}"
+except:
+    # In the event of any failure (e.g., no network connectivity)
+    warpAffine_full = ""
+    filter2D_full = ""
+
+rst_epilog = f"""
+.. |cv2_warpAffine| replace:: **cv2.warpAffine()**
+.. _cv2_warpAffine: {warpAffine_full}
+.. |cv2_filter2D| replace:: **cv2.filter2D()**
+.. _cv2_filter2D: {filter2D_full}
+"""
+
 
 # -- Stability Page ------------------------------------------------------------
 with open('./code_ref/sunpy_stability.yaml', 'r') as estability:

@@ -6,13 +6,11 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 
 import sunpy.coordinates
-import sunpy.data.test
 import sunpy.io
 import sunpy.map
 import sunpy.sun
 from sunpy.coordinates import sun
-
-testpath = sunpy.data.test.rootdir
+from sunpy.data.test import get_dummy_map_from_header, get_test_filepath
 
 
 @pytest.fixture
@@ -22,7 +20,7 @@ def test_map(request):
 
 @pytest.fixture
 def hmi_test_map():
-    (data, header), = sunpy.io.read_file(testpath / 'resampled_hmi.fits')
+    (data, header), = sunpy.io.read_file(get_test_filepath('resampled_hmi.fits'))
 
     # Get rid of the blank keyword to prevent some astropy fits fixing warnings
     header.pop('BLANK')
@@ -33,7 +31,7 @@ def hmi_test_map():
 
 @pytest.fixture
 def aia171_test_map():
-    (data, header), = sunpy.io.read_file(testpath / 'aia_171_level1.fits')
+    (data, header), = sunpy.io.read_file(get_test_filepath('aia_171_level1.fits'))
 
     # Get rid of the blank keyword to prevent some astropy fits fixing warnings
     header.pop('BLANK')
@@ -47,7 +45,7 @@ def aia171_roll_map(aia171_test_map):
 
 @pytest.fixture
 def heliographic_test_map():
-    (data, header), = sunpy.io.read_file(testpath / 'heliographic_phase_map.fits.gz')
+    (data, header), = sunpy.io.read_file(get_test_filepath('heliographic_phase_map.fits.gz'))
 
     # Fix unit strings to prevent some astropy fits fixing warnings
     header['CUNIT1'] = 'deg'
@@ -67,7 +65,7 @@ def aia171_test_map_with_mask(aia171_test_map):
 
 @pytest.fixture
 def generic_map():
-    data = np.ones([6, 6], dtype=np.float64)
+    data = np.arange(36, dtype=np.float64).reshape((6, 6))
     dobs = Time('1970-01-01T00:00:00')
     l0 = sun.L0(dobs).to_value(u.deg)
     b0 = sun.B0(dobs).to_value(u.deg)
@@ -103,8 +101,7 @@ def generic_map():
     return sunpy.map.Map((data, header))
 
 
-@pytest.fixture
-def simple_map():
+def make_simple_map():
     # A 3x3 map, with it's center at (0, 0), and scaled differently in
     # each direction
     data = np.arange(9).reshape((3, 3))
@@ -115,6 +112,9 @@ def simple_map():
     scale = [2, 1] * u.arcsec / u.pix
     header = sunpy.map.make_fitswcs_header(data, ref_coord, reference_pixel=ref_pix, scale=scale)
     return sunpy.map.Map(data, header)
+
+
+simple_map = pytest.fixture(make_simple_map)
 
 
 @pytest.fixture
@@ -139,5 +139,4 @@ def eit_test_map():
     """
     Load SunPy's test EIT image.
     """
-    eit_file = testpath / "EIT" / "efz20040301.020010_s.fits"
-    return sunpy.map.Map(eit_file)
+    return get_dummy_map_from_header(get_test_filepath("EIT_header/efz20040301.020010_s.header"))

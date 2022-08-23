@@ -8,8 +8,6 @@ How to find and plot the location of an active region on an HMI magnetogram.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from astropy.coordinates import SkyCoord
-
 import sunpy.coordinates
 import sunpy.data.sample
 import sunpy.map
@@ -46,16 +44,28 @@ numbers = srs_table['Number']
 ##############################################################################
 # Let's plot the results by defining coordinates for each location.
 
-ax = plt.subplot(projection=smap)
-smap.plot(vmin=-120, vmax=120)
-smap.draw_limb()
-c = SkyCoord(lngs, lats, frame="heliographic_stonyhurst")
-ax.plot_coord(c, 'o')
+fig = plt.figure()
+ax = fig.add_subplot(projection=smap)
+# Passing vmin/vmax to ``plot`` does not work since
+# a normalisation is set on the map. So we have to
+# work around it like so:
+smap.plot_settings["norm"].vmin = -150
+smap.plot_settings["norm"].vmax = 150
+smap.plot(axes=ax)
+smap.draw_limb(axes=ax)
+
+# Add a text box and arrow pointing to each active region
+lat_text = -40
+transparent_white = (1, 1, 1, 0.5)
 for num, lng, lat in zip(numbers, lngs.value, lats.value):
     ax.annotate(num, (lng, lat),
+                xytext=(320, lat_text),
                 xycoords=ax.get_transform('heliographic_stonyhurst'),
+                backgroundcolor=transparent_white,
                 color='red',
                 fontweight='bold',
-                )
+                arrowprops=dict(facecolor=transparent_white, width=1, headwidth=10),
+                horizontalalignment='right', verticalalignment='top')
+    lat_text += 10
 
 plt.show()

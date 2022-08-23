@@ -5,11 +5,9 @@ from pathlib import Path
 from collections import OrderedDict
 
 import h5netcdf
-import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 import numpy as np
 import packaging.version
-from matplotlib import pyplot as plt
 from pandas import DataFrame
 
 import astropy.units as u
@@ -21,8 +19,8 @@ from sunpy.extern import parse
 from sunpy.io.file_tools import UnrecognizedFileTypeError
 from sunpy.time import is_time_in_given_format, parse_time
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
+from sunpy.util.exceptions import warn_user
 from sunpy.util.metadata import MetaDict
-from sunpy.visualization import peek_show
 
 __all__ = ['XRSTimeSeries']
 
@@ -55,8 +53,12 @@ class XRSTimeSeries(GenericTimeSeries):
     -----
     * https://umbra.nascom.nasa.gov/goes/fits/goes_fits_files_notes.txt
     """
-    # Class attribute used to specify the source class of the TimeSeries.
+    # Class attributes used to specify the source class of the TimeSeries
+    # and a URL to the mission website.
     _source = 'xrs'
+    _url = "https://www.swpc.noaa.gov/products/goes-x-ray-flux"
+
+    _peek_title = "GOES X-ray flux"
 
     _netcdf_read_kw = {}
     h5netcdf_version = packaging.version.parse(h5netcdf.__version__)
@@ -65,7 +67,7 @@ class XRSTimeSeries(GenericTimeSeries):
     if h5netcdf_version >= packaging.version.parse("0.10"):
         _netcdf_read_kw['decode_vlen_strings'] = True
 
-    def plot(self, axes=None, columns=["xrsa", "xrsb"], **kwargs):
+    def plot(self, axes=None, columns=None, **kwargs):
         """
         Plots the GOES XRS light curve.
 
@@ -73,8 +75,8 @@ class XRSTimeSeries(GenericTimeSeries):
         ----------
         axes : `matplotlib.axes.Axes`, optional
             The axes on which to plot the TimeSeries. Defaults to current axes.
-        columns : `list` of {'xrsa', 'xrsb'}, optional
-            The channels to display. Defaults to ``["xrsa", "xrsb"]``.
+        columns : list[str], optional
+            If provided, only plot the specified columns.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -84,9 +86,9 @@ class XRSTimeSeries(GenericTimeSeries):
         `~matplotlib.axes.Axes`
             The plot axes.
         """
-        if not axes:
-            axes = plt.gca()
-        self._validate_data_for_plotting()
+        if columns is None:
+            columns = ["xrsa", "xrsb"]
+        axes, columns = self._setup_axes_columns(axes, columns)
         plot_settings = {"xrsa": ["blue", r"0.5--4.0 $\AA$"], "xrsb": ["red", r"1.0--8.0 $\AA$"]}
         data = self.to_dataframe()
         for channel in columns:
@@ -96,10 +98,7 @@ class XRSTimeSeries(GenericTimeSeries):
         axes.set_yscale("log")
         axes.set_ylim(1e-9, 1e-2)
         axes.set_ylabel("Watts m$^{-2}$")
-        locator = mdates.AutoDateLocator()
-        formatter = mdates.ConciseDateFormatter(locator)
-        axes.xaxis.set_major_locator(locator)
-        axes.xaxis.set_major_formatter(formatter)
+        self._setup_x_axis(axes)
         ax2 = axes.twinx()
         ax2.set_yscale("log")
         ax2.set_ylim(1e-9, 1e-2)
@@ -111,6 +110,7 @@ class XRSTimeSeries(GenericTimeSeries):
         axes.yaxis.grid(True, "major")
         axes.xaxis.grid(False, "major")
         axes.legend()
+
         return axes
 
     @property
@@ -119,10 +119,10 @@ class XRSTimeSeries(GenericTimeSeries):
         Retrieves the goes satellite number by parsing the meta dictionary.
         """
         # Various pattern matches for the meta fields.
-        pattern_inst = ("{}GOES 1-{SatelliteNumber:02d} {}")
-        pattern_new = ("{}sci_gxrs-l2-irrad_g{SatelliteNumber:02d}_d{year:4d}{month:2d}{day:2d}_{}.nc{}")
-        pattern_old = ("{}go{SatelliteNumber:02d}{}{month:2d}{day:2d}.fits{}")
-        pattern_r = ("{}sci_xrsf-l2-flx1s_g{SatelliteNumber:02d}_d{year:4d}{month:2d}{day:2d}_{}.nc{}")
+        pattern_inst = ("GOES 1-{SatelliteNumber:02d} {}")
+        pattern_new = ("sci_gxrs-l2-irrad_g{SatelliteNumber:02d}_d{year:4d}{month:2d}{day:2d}_{}.nc")
+        pattern_old = ("go{SatelliteNumber:02d}{}{month:2d}{day:2d}.fits")
+        pattern_r = ("sci_xrsf-l2-flx1s_g{SatelliteNumber:02d}_d{year:4d}{month:2d}{day:2d}_{}.nc")
         pattern_telescop = ("GOES {SatelliteNumber:02d}")
         # The ordering of where we get the metadata from is important.
         # We alway want to check ID first as that will most likely have the correct information.
@@ -132,41 +132,18 @@ class XRSTimeSeries(GenericTimeSeries):
             or self.meta.metas[0].get("TELESCOP", "").strip()
             or self.meta.metas[0].get("Instrument", "").strip()
         )
+        if isinstance(id, bytes):
+            # Needed for old versions of h5netcdf
+            id = id.decode('ascii')
         if id is None:
             log.debug("Unable to get a satellite number from 'Instrument', 'TELESCOP' or 'id' ")
             return None
         for pattern in [pattern_inst, pattern_new, pattern_old, pattern_r, pattern_telescop]:
-            parsed = parse(pattern, str(id))
+            parsed = parse(pattern, id)
             if parsed is not None:
                 return f"GOES-{parsed['SatelliteNumber']}"
         log.debug('Satellite Number not found in metadata')
         return None
-
-    @peek_show
-    def peek(self, title="GOES X-ray flux", **kwargs):
-        """
-        Displays the GOES XRS light curve by calling `~sunpy.timeseries.sources.goes.XRSTimeSeries.plot`.
-
-        .. plot::
-
-            import sunpy.timeseries
-            import sunpy.data.sample
-            ts_goes = sunpy.timeseries.TimeSeries(sunpy.data.sample.GOES_XRS_TIMESERIES, source='XRS')
-            ts_goes.peek()
-
-        Parameters
-        ----------
-        title : `str`, optional
-            The title of the plot. Defaults to "GOES X-ray flux".
-        **kwargs : `dict`
-            Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
-            functions.
-        """
-        fig, ax = plt.subplots()
-        axes = self.plot(axes=ax, **kwargs)
-        axes.set_title(title)
-        fig.autofmt_xdate()
-        return fig
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -209,6 +186,7 @@ class XRSTimeSeries(GenericTimeSeries):
                 raise ValueError("Date not recognized")
             xrsb = hdulist[2].data['FLUX'][0][:, 0]
             xrsa = hdulist[2].data['FLUX'][0][:, 1]
+            # TODO how to extract quality flags from HDU?
             seconds_from_start = hdulist[2].data['TIME'][0]
         elif 1 <= len(hdulist) <= 3:
             start_time = parse_time(header['TIMEZERO'], format='utime')
@@ -245,31 +223,56 @@ class XRSTimeSeries(GenericTimeSeries):
 
         Parameters
         ----------
-        filepath : `~str`
+        filepath : `str`
             The path of the file to parse
         """
-        with h5netcdf.File(filepath, mode="r", **XRSTimeSeries._netcdf_read_kw) as d:
+        with h5netcdf.File(filepath, mode="r", **XRSTimeSeries._netcdf_read_kw) as h5nc:
+            header = MetaDict(OrderedDict(h5nc.attrs))
+            flux_name = h5nc.variables.get("a_flux") or h5nc.variables.get("xrsa_flux")
+            if flux_name is None:
+                raise ValueError(f"No flux data (either a_flux or xrsa_flux) found in file: {filepath}")
+            flux_name_a = flux_name.name
+            flux_name_b = flux_name_a.replace("a", "b")
+            xrsa = np.array(h5nc[flux_name_a])
+            xrsb = np.array(h5nc[flux_name_b])
+            xrsa_quality = np.array(h5nc[flux_name_a.replace("flux", "flags")])
+            xrsb_quality = np.array(h5nc[flux_name_b.replace("flux", "flags")])
+            start_time_str = h5nc["time"].attrs["units"]
+            # h5netcdf < 0.14 return bytes instead of a str
+            if isinstance(start_time_str, bytes):
+                start_time_str = start_time_str.decode("utf-8")
+            start_time_str = start_time_str.lstrip("seconds since").rstrip("UTC").strip()
+            times = Time(parse_time(start_time_str).unix + h5nc["time"], format="unix")
 
-            header = MetaDict(OrderedDict(d.attrs))
-            if "a_flux" in d.variables:
-                xrsa = np.array(d["a_flux"])
-                xrsb = np.array(d["b_flux"])
-                start_time_str = d["time"].attrs["units"].astype(str).lstrip("seconds since").rstrip("UTC")
-                times = parse_time(start_time_str) + TimeDelta(d["time"], format="sec")
-            elif "xrsa_flux" in d.variables:
-                xrsa = np.array(d["xrsa_flux"])
-                xrsb = np.array(d["xrsb_flux"])
-                start_time_str = d["time"].attrs["units"].astype(str).lstrip("seconds since")
-                times = parse_time(start_time_str) + TimeDelta(d["time"], format="sec")
-
-            else:
-                raise ValueError(f"The file {filepath} doesn't seem to be a GOES netcdf file.")
-
-        data = DataFrame({"xrsa": xrsa, "xrsb": xrsb}, index=times.datetime)
+        try:
+            times = times.datetime
+        except ValueError:
+            # We do not make the assumption that the leap second occurs at the end of the file.
+            # Therefore, we need to find it:
+            # To do so, we convert the times to isot strings, use numpy to find the the leap second string,
+            # then use that to workout the index of the leap timestamp.
+            idx = np.argwhere((np.char.find(times.isot, ":60.") != -1) == True)
+            # We only handle the case there is only 1 leap second in the file.
+            # I don't think there every would be a case where it would be more than 1.
+            if len(idx) != 1:
+                raise ValueError(f"More than one leap second was found in: {Path(filepath).name}")
+            warn_user(
+                f"There is one leap second timestamp present in: {Path(filepath).name}, "
+                "This timestamp has been rounded to `:59.999` to allow its conversion into a Python datetime. "
+                f"The leap second timestamp was: {times.isot[idx]}"
+            )
+            times[idx] = Time(times[idx].isot.tolist()[0][0][:17] + "59.999").unix
+            times = times.datetime
+        data = DataFrame({"xrsa": xrsa, "xrsb": xrsb, "xrsa_quality": xrsa_quality, "xrsb_quality": xrsb_quality}, index=times)
         data = data.replace(-9999, np.nan)
-        units = OrderedDict([("xrsa", u.W/u.m**2),
-                             ("xrsb", u.W/u.m**2)])
-
+        units = OrderedDict(
+            [
+                ("xrsa", u.W/u.m**2),
+                ("xrsb", u.W/u.m**2),
+                ("xrsa_quality", int),
+                ("xrsb_quality", int),
+            ]
+        )
         return data, header, units
 
     @classmethod
@@ -287,7 +290,11 @@ class XRSTimeSeries(GenericTimeSeries):
             try:
                 if sunpy.io.detect_filetype(kwargs["filepath"]) == "hdf5":
                     with h5netcdf.File(kwargs["filepath"], mode="r", **cls._netcdf_read_kw) as f:
-                        return "XRS" in f.attrs["summary"].astype("str")
+                        summary = f.attrs["summary"]
+                        if not isinstance(summary, str):
+                            # h5netcdf<0.14
+                            summary = summary.astype(str)
+                        return "XRS" in summary
             except Exception as e:
                 log.debug(f'Reading {kwargs["filepath"]} failed with the following exception:\n{e}')
                 return False

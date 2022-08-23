@@ -18,7 +18,6 @@ from astropy.time import Time
 
 import sunpy
 from sunpy.io.file_tools import UnrecognizedFileTypeError, detect_filetype, read_file
-from sunpy.io.fits import HDPair
 from sunpy.io.header import FileHeader
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 from sunpy.util import expand_list
@@ -30,7 +29,7 @@ from sunpy.util.datatype_factory_base import (
     ValidationFunctionError,
 )
 from sunpy.util.functools import seconddispatch
-from sunpy.util.io import is_url, parse_path, possibly_a_path
+from sunpy.util.io import HDPair, is_url, parse_path, possibly_a_path
 from sunpy.util.metadata import MetaDict
 from sunpy.util.net import download_file
 
@@ -438,10 +437,6 @@ class TimeSeriesFactory(BasicRegistrationFactory):
                 full_timeseries = full_timeseries.concatenate(timeseries)
 
             new_timeseries = [full_timeseries]
-
-        # Sanitize any units OrderedDict details
-        for timeseries in new_timeseries:
-            timeseries._sanitize_units()
 
         # Only return single time series, not in a list if we only have one.
         if len(new_timeseries) == 1:

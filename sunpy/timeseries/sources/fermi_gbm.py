@@ -31,7 +31,12 @@ class GBMSummaryTimeSeries(GenericTimeSeries):
 
     This summary lightcurve makes use of the CSPEC (daily version) data set which consists of the counts
     accumulated every 4.096 seconds in 128 energy channels for each of the 14 detectors.
+
     Note that the data is re-binned from the original 128 into the following 8 pre-determined energy channels.
+    The rebinning method treats the counts in each of the original 128 channels as
+    all having the energy of the average energy of that channel.  For example, the
+    counts in an 14.5--15.6 keV original channel would all be accumulated into the
+    15--25 keV rebinned channel.
 
     * 4-15 keV
     * 15-25 keV
@@ -56,10 +61,12 @@ class GBMSummaryTimeSeries(GenericTimeSeries):
     * `Fermi Data Product <https://fermi.gsfc.nasa.gov/ssc/data/access/>`_
     * `GBM Instrument Papers <https://gammaray.nsstc.nasa.gov/gbm/publications/instrument_journal_gbm.html>`_
     """
-    # Class attribute used to specify the source class of the TimeSeries.
+    # Class attributes used to specify the source class of the TimeSeries
+    # and a URL to the mission website.
     _source = 'gbmsummary'
+    _url = "https://gammaray.nsstc.nasa.gov/gbm/#"
 
-    def plot(self, axes=None, **kwargs):
+    def plot(self, axes=None, columns=None, **kwargs):
         """
         Plots the GBM timeseries.
 
@@ -67,6 +74,8 @@ class GBMSummaryTimeSeries(GenericTimeSeries):
         ----------
         axes : `matplotlib.axes.Axes`, optional
             The axes on which to plot the TimeSeries. Defaults to current axes.
+        columns : list[str], optional
+            If provided, only plot the specified columns.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -76,20 +85,17 @@ class GBMSummaryTimeSeries(GenericTimeSeries):
         `~matplotlib.axes.Axes`
             The plot axes.
         """
-        self._validate_data_for_plotting()
-        if axes is None:
-            axes = plt.gca()
-        data_lab = self.to_dataframe().columns.values
-        for d in data_lab:
-            axes.plot(self.to_dataframe().index, self.to_dataframe()[d], label=d, **kwargs)
+        axes, columns = self._setup_axes_columns(axes, columns)
+        for d in columns:
+            axes.plot(self._data.index, self._data[d], label=d, **kwargs)
         axes.set_yscale("log")
-        axes.set_xlabel('Start time: ' + self.to_dataframe().index[0].strftime('%Y-%m-%d %H:%M:%S UT'))
         axes.set_ylabel('Counts/s/keV')
         axes.legend()
+        self._setup_x_axis(axes)
         return axes
 
     @peek_show
-    def peek(self, title=None, **kwargs):
+    def peek(self, title=None, columns=None, **kwargs):
         """
         Displays the GBM timeseries by calling
         `~sunpy.timeseries.sources.fermi_gbm.GBMSummaryTimeSeries.plot`.
@@ -105,6 +111,8 @@ class GBMSummaryTimeSeries(GenericTimeSeries):
         ----------
         title : `str`, optional
             The title of the plot.
+        columns : list[str], optional
+            If provided, only plot the specified columns.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -112,9 +120,8 @@ class GBMSummaryTimeSeries(GenericTimeSeries):
         if title is None:
             title = 'Fermi GBM Summary data ' + str(self.meta.get('DETNAM').values())
         fig, ax = plt.subplots()
-        axes = self.plot(axes=ax, **kwargs)
+        axes = self.plot(axes=ax, columns=columns, **kwargs)
         axes.set_title(title)
-        fig.autofmt_xdate()
         return fig
 
     @classmethod
@@ -205,25 +212,20 @@ def _bin_data_for_summary(energy_bins, count_data):
     count_data : `numpy.ndarray`
         The array of count data to rebin.
     """
-    # find the indices corresponding to some standard summary energy bins
+
+    # list of energy bands to sum between
     ebands = [4, 15, 25, 50, 100, 300, 800, 2000]
-    indices = []
-    for e in ebands:
-        indices.append(np.searchsorted(energy_bins['e_max'], e))
+    e_center = (energy_bins['e_min'] + energy_bins['e_max']) / 2
+    indices = [np.searchsorted(e_center, e) for e in ebands]
 
     summary_counts = []
-    for i in range(0, len(count_data['counts'])):
-        counts_in_bands = []
-        for j in range(1, len(ebands)):
-            counts_in_bands.append(
-                np.sum(count_data['counts'][i][indices[j - 1]:indices[j]]) /
-                (count_data['exposure'][i] *
-                 (energy_bins['e_max'][indices[j]] -
-                  energy_bins['e_min'][indices[j - 1]])))
+    for ind_start, ind_end in zip(indices[:-1], indices[1:]):
+        # sum the counts in the energy bands, and find counts/s/keV
+        summed_counts = np.sum(count_data["counts"][:, ind_start:ind_end], axis=1)
+        energy_width = (energy_bins["e_max"][ind_end - 1] - energy_bins["e_min"][ind_start])
+        summary_counts.append(summed_counts/energy_width/count_data["exposure"])
 
-        summary_counts.append(counts_in_bands)
-
-    return summary_counts
+    return np.array(summary_counts).T
 
 
 def _parse_detector(detector):

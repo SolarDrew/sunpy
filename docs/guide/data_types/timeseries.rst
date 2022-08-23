@@ -37,9 +37,9 @@ following into your interactive Python shell: ::
 .. doctest-skip-all
 
 This is calling the `~sunpy.timeseries.TimeSeries` factory to create a time
-series from a GOES XRS FITS file. The TimeSeries factory uses `sunpy.io.fits` to
-read the FITS file. Note that if you have not downloaded the data already you
-should get an error and some instruction on how to download the sample data.
+series from a GOES XRS FITS file. Note that if you have not downloaded the data
+already you should get an error and some instruction on how to download the
+sample data.
 
 The variable ``my_timeseries`` is a :ref:`timeseries` object. To create one from
 a local GOES/XRS FITS file try the following: ::
@@ -185,7 +185,7 @@ the header information as read from the source files. A word of caution: many
 data sources provide little to no meta data so this variable might be empty.
 The meta data is described in more detail later in this guide. Similarly there
 are properties for getting `~sunpy.timeseries.GenericTimeSeries.columns`
-as a list of strings, `~sunpy.timeseries.GenericTimeSeries.index`
+as a list of strings, `~sunpy.timeseries.GenericTimeSeries.time`
 values and `~sunpy.timeseries.GenericTimeSeries.time_range` of
 the data.  The actual data in a sunpy TimeSeries object is accessible through
 the `~sunpy.timeseries.GenericTimeSeries.data` attribute.  The

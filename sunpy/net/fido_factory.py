@@ -315,11 +315,7 @@ class UnifiedDownloaderFactory(BasicRegistrationFactory):
         # client generated results, we drop the empty VSO results for tidiness.
         # This is because the VSO _can_handle_query is very broad because we
         # don't know the full list of supported values we can search for (yet).
-        if len(results) > 1:
-            vso_results = list(filter(lambda r: isinstance(r, vso.VSOQueryResponseTable), results))
-            for vres in vso_results:
-                if len(vres) == 0:
-                    results.remove(vres)
+        results = [r for r in results if not isinstance(r, vso.VSOQueryResponseTable) or len(r) > 0]
 
         return UnifiedResponse(*results)
 
@@ -492,7 +488,7 @@ class UnifiedDownloaderFactory(BasicRegistrationFactory):
         return results
 
     def __repr__(self):
-        return object.__repr__(self) + "\n" + self._print_clients(visible_entries=15)
+        return object.__repr__(self) + "\n" + self._print_clients()
 
     def __str__(self):
         """
@@ -504,9 +500,9 @@ class UnifiedDownloaderFactory(BasicRegistrationFactory):
         """
         This enables the "pretty" printing of the Fido Clients with html.
         """
-        return self._print_clients(visible_entries=15, html=True)
+        return self._print_clients(html=True)
 
-    def _print_clients(self, html=False, visible_entries=None):
+    def _print_clients(self, html=False, visible_entries=-1):
         width = -1 if html else get_width()
 
         t = Table(names=["Client", "Description"], dtype=["U80", "U120"])

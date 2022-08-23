@@ -1,13 +1,10 @@
-import os
-
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_almost_equal
-from scipy.ndimage.interpolation import shift as sp_shift
+from scipy.ndimage import shift as sp_shift
 
 import astropy.units as u
 
-import sunpy.data.test
 from sunpy.image.coalignment import (
     _default_fmap_function,
     _lower_clip,
@@ -26,16 +23,13 @@ from sunpy.image.coalignment import (
 from sunpy.map import Map, MapSequence
 from sunpy.util import SunpyUserWarning
 
+DEP_WARNING = r'''ignore:The .* function is deprecated and may be removed in version 4.1.
+\s+Use `sunkit_image.coalignment.* instead.:sunpy.util.exceptions.SunpyDeprecationWarning'''
+
 
 @pytest.fixture
 def aia171_test_clipping():
     return np.asarray([0.2, -0.3, -1.0001])
-
-
-@pytest.fixture
-def aia171_test_map():
-    testpath = sunpy.data.test.rootdir
-    return sunpy.map.Map(os.path.join(testpath, 'aia_171_level1.fits'))
 
 
 @pytest.fixture
@@ -70,17 +64,20 @@ def aia171_test_template_shape(aia171_test_template):
     return aia171_test_template.shape
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_parabolic_turning_point():
-    assert(parabolic_turning_point(np.asarray([6.0, 2.0, 0.0])) == 1.5)
+    assert (parabolic_turning_point(np.asarray([6.0, 2.0, 0.0])) == 1.5)
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_check_for_nonfinite_entries():
-    with pytest.warns(None) as warning_list:
+    with pytest.warns(Warning) as warning_list:
         a = np.zeros((3, 3))
         b = np.ones((3, 3))
         check_for_nonfinite_entries(a, b)
 
-    assert len(warning_list) == 0
+    # Added a -1 because pytest.warns also catches the deprecation warning
+    assert len(warning_list)-1 == 0
 
     for i in range(0, 9):
         for non_number in [np.nan, np.inf]:
@@ -92,20 +89,22 @@ def test_check_for_nonfinite_entries():
                               match='The layer image has nonfinite entries.') as warning_list:
                 check_for_nonfinite_entries(b, np.ones((3, 3)))
 
-            assert len(warning_list) == 1
+            # Added a -1 because pytest.warns also catches the deprecation warning
+            assert len(warning_list)-1 == 1
 
             with pytest.warns(SunpyUserWarning,
                               match='The template image has nonfinite entries.') as warning_list:
                 check_for_nonfinite_entries(np.ones((3, 3)), b)
 
-            assert len(warning_list) == 1
+            assert len(warning_list)-1 == 1
 
-            with pytest.warns(None) as warning_list:
+            with pytest.warns(Warning) as warning_list:
                 check_for_nonfinite_entries(b, b)
 
-            assert len(warning_list) == 2
+            assert len(warning_list)-1 == 2
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_match_template_to_layer(aia171_test_map_layer,
                                  aia171_test_template,
                                  aia171_test_map_layer_shape,
@@ -119,6 +118,7 @@ def test_match_template_to_layer(aia171_test_map_layer,
     assert_allclose(np.max(result), 1.00, rtol=1e-2, atol=0)
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_get_correlation_shifts():
     # Input array is 3 by 3, the most common case
     test_array = np.zeros((3, 3))
@@ -149,6 +149,7 @@ def test_get_correlation_shifts():
         get_correlation_shifts(test_array)
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_find_best_match_location(aia171_test_map_layer, aia171_test_template,
                                   aia171_test_shift):
 
@@ -161,33 +162,35 @@ def test_find_best_match_location(aia171_test_map_layer, aia171_test_template,
 def test_lower_clip(aia171_test_clipping):
     # No element is less than zero
     test_array = np.asarray([1.1, 0.1, 3.0])
-    assert(_lower_clip(test_array) == 0)
-    assert(_lower_clip(aia171_test_clipping) == 2.0)
+    assert (_lower_clip(test_array) == 0)
+    assert (_lower_clip(aia171_test_clipping) == 2.0)
 
 
 def test_upper_clip(aia171_test_clipping):
-    assert(_upper_clip(aia171_test_clipping) == 1.0)
+    assert (_upper_clip(aia171_test_clipping) == 1.0)
     # No element is greater than zero
     test_array = np.asarray([-1.1, -0.1, -3.0])
-    assert(_upper_clip(test_array) == 0)
+    assert (_upper_clip(test_array) == 0)
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_calculate_clipping(aia171_test_clipping):
     answer = calculate_clipping(aia171_test_clipping * u.pix, aia171_test_clipping * u.pix)
     assert_array_almost_equal(answer, ([2.0, 1.0]*u.pix, [2.0, 1.0]*u.pix))
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_clip_edges():
     a = np.zeros(shape=(341, 156))
     yclip = [4, 0] * u.pix
     xclip = [1, 2] * u.pix
     new_a = clip_edges(a, yclip, xclip)
-    assert(a.shape[0] - (yclip[0].value + yclip[1].value) == new_a.shape[0])
-    assert(a.shape[1] - (xclip[0].value + xclip[1].value) == new_a.shape[1])
+    assert (a.shape[0] - (yclip[0].value + yclip[1].value) == new_a.shape[0])
+    assert (a.shape[1] - (xclip[0].value + xclip[1].value) == new_a.shape[1])
 
 
 def test__default_fmap_function():
-    assert(_default_fmap_function([1, 2, 3]).dtype == np.float64(1).dtype)
+    assert (_default_fmap_function([1, 2, 3]).dtype == np.float64(1).dtype)
 
 #
 # The following tests test functions that have mapsequences as inputs
@@ -217,6 +220,7 @@ def aia171_test_mc(aia171_test_map, aia171_test_map_layer,
     return Map([aia171_test_map, m1], sequence=True)
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_calculate_match_template_shift(aia171_test_mc,
                                         aia171_mc_arcsec_displacements,
                                         aia171_test_map,
@@ -251,6 +255,7 @@ def test_calculate_match_template_shift(aia171_test_mc,
         calculate_match_template_shift(aia171_test_mc, template='broken')
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_mapsequence_coalign_by_match_template(aia171_test_mc,
                                                aia171_test_map_layer_shape):
     # Define these local variables to make the code more readable
@@ -264,13 +269,13 @@ def test_mapsequence_coalign_by_match_template(aia171_test_mc,
     test_mc = mapsequence_coalign_by_match_template(aia171_test_mc, shift=test_displacements)
 
     # Make sure the output is a mapsequence
-    assert(isinstance(test_mc, MapSequence))
+    assert (isinstance(test_mc, MapSequence))
 
     # Test returning with no clipping.  Output layers should have the same size
     # as the original input layer.
     test_mc = mapsequence_coalign_by_match_template(aia171_test_mc, clip=False)
-    assert(test_mc[0].data.shape == aia171_test_map_layer_shape)
-    assert(test_mc[1].data.shape == aia171_test_map_layer_shape)
+    assert (test_mc[0].data.shape == aia171_test_map_layer_shape)
+    assert (test_mc[1].data.shape == aia171_test_map_layer_shape)
 
     # Test the returned mapsequence using the default - clipping on.
     # All output layers should have the same size
@@ -282,10 +287,10 @@ def test_mapsequence_coalign_by_match_template(aia171_test_mc,
     number_of_pixels_clipped = [np.sum(np.abs(expected_clipping[0])),
                                 np.sum(np.abs(expected_clipping[1]))]
 
-    assert(test_mc[0].data.shape == (ny - number_of_pixels_clipped[0].value,
-                                     nx - number_of_pixels_clipped[1].value))
-    assert(test_mc[1].data.shape == (ny - number_of_pixels_clipped[0].value,
-                                     nx - number_of_pixels_clipped[1].value))
+    assert (test_mc[0].data.shape == (ny - number_of_pixels_clipped[0].value,
+                                      nx - number_of_pixels_clipped[1].value))
+    assert (test_mc[1].data.shape == (ny - number_of_pixels_clipped[0].value,
+                                      nx - number_of_pixels_clipped[1].value))
 
     # Test the returned mapsequence explicitly using clip=True.
     # All output layers should have the same size
@@ -297,10 +302,10 @@ def test_mapsequence_coalign_by_match_template(aia171_test_mc,
     number_of_pixels_clipped = [np.sum(np.abs(expected_clipping[0])),
                                 np.sum(np.abs(expected_clipping[1]))]
 
-    assert(test_mc[0].data.shape == (ny - number_of_pixels_clipped[0].value,
-                                     nx - number_of_pixels_clipped[1].value))
-    assert(test_mc[1].data.shape == (ny - number_of_pixels_clipped[0].value,
-                                     nx - number_of_pixels_clipped[1].value))
+    assert (test_mc[0].data.shape == (ny - number_of_pixels_clipped[0].value,
+                                      nx - number_of_pixels_clipped[1].value))
+    assert (test_mc[1].data.shape == (ny - number_of_pixels_clipped[0].value,
+                                      nx - number_of_pixels_clipped[1].value))
 
     # Test that the reference pixel of each map in the coaligned mapsequence is
     # correct.
@@ -311,6 +316,7 @@ def test_mapsequence_coalign_by_match_template(aia171_test_mc,
                             rtol=5e-2, atol=0)
 
 
+@pytest.mark.filterwarnings(DEP_WARNING)
 def test_apply_shifts(aia171_test_map):
     # take two copies of the AIA image and create a test mapsequence.
     mc = Map([aia171_test_map, aia171_test_map], sequence=True)
@@ -331,21 +337,21 @@ def test_apply_shifts(aia171_test_map):
 
     # Test returning with no extra options - the code returns a mapsequence only
     test_output = apply_shifts(mc, astropy_displacements["y"], astropy_displacements["x"])
-    assert(isinstance(test_output, MapSequence))
+    assert (isinstance(test_output, MapSequence))
 
     # Test returning with no clipping.  Output layers should have the same size
     # as the original input layer.
     test_mc = apply_shifts(mc, astropy_displacements["y"], astropy_displacements["x"], clip=False)
-    assert(test_mc[0].data.shape == aia171_test_map.data.shape)
-    assert(test_mc[1].data.shape == aia171_test_map.data.shape)
+    assert (test_mc[0].data.shape == aia171_test_map.data.shape)
+    assert (test_mc[1].data.shape == aia171_test_map.data.shape)
 
     # Test returning with clipping.  Output layers should be smaller than the
     # original layer by a known amount.
     test_mc = apply_shifts(mc, astropy_displacements["y"], astropy_displacements["x"], clip=True)
     for i in range(0, len(test_mc.maps)):
         clipped = calculate_clipping(astropy_displacements["y"], astropy_displacements["x"])
-        assert(test_mc[i].data.shape[0] == mc[i].data.shape[0] - np.max(clipped[0].value))
-        assert(test_mc[i].data.shape[1] == mc[i].data.shape[1] - np.max(clipped[1].value))
+        assert (test_mc[i].data.shape[0] == mc[i].data.shape[0] - np.max(clipped[0].value))
+        assert (test_mc[i].data.shape[1] == mc[i].data.shape[1] - np.max(clipped[1].value))
 
     # Test returning with default clipping.  The default clipping is set to
     # true, that is the mapsequence is clipped.  Output layers should be smaller
@@ -353,18 +359,18 @@ def test_apply_shifts(aia171_test_map):
     test_mc = apply_shifts(mc, astropy_displacements["y"], astropy_displacements["x"])
     for i in range(0, len(test_mc.maps)):
         clipped = calculate_clipping(astropy_displacements["y"], astropy_displacements["x"])
-        assert(test_mc[i].data.shape[0] == mc[i].data.shape[0] - np.max(clipped[0].value))
-        assert(test_mc[i].data.shape[1] == mc[i].data.shape[1] - np.max(clipped[1].value))
+        assert (test_mc[i].data.shape[0] == mc[i].data.shape[0] - np.max(clipped[0].value))
+        assert (test_mc[i].data.shape[1] == mc[i].data.shape[1] - np.max(clipped[1].value))
 
     # Test that keywords are correctly passed
     # Test for an individual keyword
     test_mc = apply_shifts(mc, astropy_displacements["y"], astropy_displacements["x"], clip=False,
                            cval=np.nan)
-    assert(np.all(np.logical_not(np.isfinite(test_mc[1].data[:, -1]))))
+    assert (np.all(np.logical_not(np.isfinite(test_mc[1].data[:, -1]))))
 
     # Test for a combination of keywords, and that changing the interpolation
     # order and how the edges are treated changes the results.
     test_mc1 = apply_shifts(mc, astropy_displacements["y"], astropy_displacements["x"], clip=False,
                             order=2, mode='reflect')
     test_mc2 = apply_shifts(mc, astropy_displacements["y"], astropy_displacements["x"], clip=False)
-    assert(np.all(test_mc1[1].data[:, -1] != test_mc2[1].data[:, -1]))
+    assert (np.all(test_mc1[1].data[:, -1] != test_mc2[1].data[:, -1]))

@@ -6,12 +6,16 @@ Sample data set overview
 An overview of the coordinated sample data set (available through `sunpy.data.sample`).
 """
 import matplotlib.pyplot as plt
+import numpy as np
 
 import astropy.units as u
+from astropy.coordinates import SkyCoord
 
+import sunpy.coordinates
 import sunpy.data.sample as sample_data
 import sunpy.map
 import sunpy.timeseries
+from sunpy.io.special import srs
 
 ###############################################################################
 # On 2011 June 7, various solar instruments observed a spectacular solar
@@ -29,10 +33,8 @@ import sunpy.timeseries
 # The following image of the flare is now fairly iconic.
 
 aia_cutout03_map = sunpy.map.Map(sample_data.AIA_193_CUTOUT03_IMAGE)
-fig = plt.figure()
-ax = fig.add_subplot(111, projection=aia_cutout03_map)
+plt.figure()
 aia_cutout03_map.plot()
-
 plt.show()
 
 ###############################################################################
@@ -41,7 +43,6 @@ plt.show()
 goes = sunpy.timeseries.TimeSeries(sample_data.GOES_XRS_TIMESERIES)
 fig = plt.figure()
 goes.plot()
-
 plt.show()
 
 ###############################################################################
@@ -56,32 +57,12 @@ aia_094_map = sunpy.map.Map(sample_data.AIA_094_IMAGE)
 aia_1600_map = sunpy.map.Map(sample_data.AIA_1600_IMAGE)
 
 fig = plt.figure(figsize=(6, 28))
-ax = fig.add_subplot(611, projection=aia_131_map)
-aia_131_map.plot(clip_interval=(0.5, 99.9)*u.percent)
-aia_131_map.draw_grid()
-
-ax = fig.add_subplot(612, projection=aia_171_map)
-aia_171_map.plot(clip_interval=(0.5, 99.9)*u.percent)
-aia_171_map.draw_grid()
-
-ax = fig.add_subplot(613, projection=aia_211_map)
-aia_211_map.plot(clip_interval=(0.5, 99.9)*u.percent)
-aia_211_map.draw_grid()
-
-ax = fig.add_subplot(614, projection=aia_335_map)
-aia_335_map.plot(clip_interval=(0.5, 99.9)*u.percent)
-aia_335_map.draw_grid()
-
-ax = fig.add_subplot(615, projection=aia_094_map)
-aia_094_map.plot(clip_interval=(0.5, 99.9)*u.percent)
-aia_094_map.draw_grid()
-
-ax = fig.add_subplot(616, projection=aia_1600_map)
-aia_1600_map.plot(clip_interval=(0.5, 99.9)*u.percent)
-aia_1600_map.draw_grid()
-
+for i, m in enumerate([aia_131_map, aia_171_map, aia_211_map,
+                       aia_335_map, aia_094_map, aia_1600_map]):
+    ax = fig.add_subplot(6, 1, i+1, projection=m)
+    m.plot(axes=ax, clip_interval=(0.5, 99.9)*u.percent)
+    m.draw_grid(axes=ax)
 fig.tight_layout(pad=8.50)
-
 plt.show()
 
 ###############################################################################
@@ -95,39 +76,93 @@ aia_cutout04_map = sunpy.map.Map(sample_data.AIA_193_CUTOUT04_IMAGE)
 aia_cutout05_map = sunpy.map.Map(sample_data.AIA_193_CUTOUT05_IMAGE)
 
 fig = plt.figure(figsize=(6, 28))
-ax = fig.add_subplot(511, projection=aia_cutout01_map)
-aia_cutout01_map.plot()
-
-ax = fig.add_subplot(512, projection=aia_cutout02_map)
-aia_cutout02_map.plot()
-
-ax = fig.add_subplot(513, projection=aia_cutout03_map)
-aia_cutout03_map.plot()
-
-ax = fig.add_subplot(514, projection=aia_cutout04_map)
-aia_cutout04_map.plot()
-
-ax = fig.add_subplot(515, projection=aia_cutout05_map)
-aia_cutout05_map.plot()
-
+for i, m in enumerate([aia_cutout01_map, aia_cutout02_map, aia_cutout03_map,
+                       aia_cutout04_map, aia_cutout05_map]):
+    ax = fig.add_subplot(5, 1, i+1, projection=m)
+    m.plot(axes=ax)
 fig.tight_layout(pad=5.50)
-
 plt.show()
 
 ###############################################################################
 # There are a number of other data sources available as well, such as SWAP.
 
 swap_map = sunpy.map.Map(sample_data.SWAP_LEVEL1_IMAGE)
-fig = plt.figure()
+plt.figure()
 swap_map.plot()
-
 plt.show()
 
 ###############################################################################
 # Also RHESSI.
 
 rhessi_map = sunpy.map.Map(sample_data.RHESSI_IMAGE)
-fig = plt.figure()
+plt.figure()
 rhessi_map.plot()
+plt.show()
 
+##############################################################################
+# NORH
+
+norh = sunpy.timeseries.TimeSeries(sample_data.NORH_TIMESERIES)
+fig = plt.figure()
+norh.plot()
+plt.show()
+
+####################################################################################
+# NOAA overlaid with HMI
+
+noaa = srs.read_srs(sample_data.SRS_TABLE)
+smap = sunpy.map.Map(sample_data.HMI_LOS_IMAGE)
+
+noaa = noaa[np.logical_or(noaa['ID'] == 'I', noaa['ID'] == 'IA')]
+
+lats = noaa['Latitude']
+lngs = noaa['Longitude']
+numbers = noaa['Number']
+
+fig = plt.figure()
+ax = fig.add_subplot(projection=smap)
+
+smap.plot_settings["norm"].vmin = -200
+smap.plot_settings["norm"].vmax = 200
+smap.plot(axes=ax)
+smap.draw_limb(axes=ax)
+
+c = SkyCoord(lngs, lats, frame="heliographic_stonyhurst")
+
+ax.plot_coord(c, 'o')
+
+for lat, lng, num in zip(lats.value, lngs.value, numbers):
+    ax.annotate(num, (lng, lat),
+                xycoords=ax.get_transform('heliographic_stonyhurst'),
+                color='blue',
+                fontweight='bold')
+
+plt.show()
+
+####################################################################################
+# EVE
+
+eve = sunpy.timeseries.TimeSeries(sample_data.EVE_TIMESERIES, source='EVE')
+fig = plt.figure(figsize=(10, 6))
+eve.plot()
+plt.legend(bbox_to_anchor=(1.01, 0.85), loc='upper left', borderaxespad=0)
+fig.tight_layout()
+plt.show()
+
+####################################################################################
+# LYRA
+
+lyra = sunpy.timeseries.TimeSeries(sample_data.LYRA_LEVEL3_TIMESERIES, source='lyra')
+plt.rcParams['figure.figsize'] = [12, 7]
+lyra.plot()
+plt.show()
+
+####################################################################################
+# GBM
+
+gbm = sunpy.timeseries.TimeSeries(sample_data.GBM_TIMESERIES, source='GBMSummary')
+fig = plt.figure(figsize=(12, 6))
+gbm.plot()
+plt.legend(bbox_to_anchor=(1.01, 0.85), loc='upper left', borderaxespad=0)
+fig.tight_layout()
 plt.show()

@@ -3,7 +3,7 @@ Solar Orbiter Map subclass definitions.
 """
 import astropy.units as u
 from astropy.coordinates import CartesianRepresentation
-from astropy.visualization import ImageNormalize, LinearStretch
+from astropy.visualization import AsinhStretch, ImageNormalize
 
 from sunpy.coordinates import HeliocentricInertial
 from sunpy.map import GenericMap
@@ -34,9 +34,8 @@ class EUIMap(GenericMap):
     def __init__(self, data, header, **kwargs):
         super().__init__(data, header, **kwargs)
         self._nickname = self.detector
-        self.plot_settings['cmap'] = self._get_cmap_name()
         self.plot_settings['norm'] = ImageNormalize(
-            stretch=source_stretch(self.meta, LinearStretch()), clip=False)
+            stretch=source_stretch(self.meta, AsinhStretch(0.01)), clip=False)
 
     @property
     def _rotation_matrix_from_crota(self):
@@ -57,6 +56,14 @@ class EUIMap(GenericMap):
         t = self.meta.get('date-avg')
         timesys = self.meta.get('timesys')
         return parse_time(t, scale=timesys.lower())
+
+    @property
+    def waveunit(self):
+        # EUI JP2000 files do not have the WAVEUNIT key in the metadata.
+        # However, the FITS files do.
+        # The EUI metadata spec says the WAVELNTH key is always expressed
+        # in Angstroms so we assume this if the WAVEUNIT is missing.
+        return super().waveunit or u.Angstrom
 
     @property
     def _supported_observer_coordinates(self):

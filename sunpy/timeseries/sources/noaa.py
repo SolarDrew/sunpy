@@ -6,11 +6,9 @@ from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
 
 import astropy.units as u
 
-from sunpy.time import parse_time
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 from sunpy.util.metadata import MetaDict
 from sunpy.visualization import peek_show
@@ -54,10 +52,12 @@ class NOAAIndicesTimeSeries(GenericTimeSeries):
     * `NOAA plots of Solar Cycle Progression <https://www.swpc.noaa.gov/products/solar-cycle-progression>`_
     * `NOAA Product List <https://www.swpc.noaa.gov/products-and-data>`_
     """
-    # Class attribute used to specify the source class of the TimeSeries.
+    # Class attributes used to specify the source class of the TimeSeries
+    # and a URL to the mission website.
     _source = 'noaaindices'
+    _url = "https://www.swpc.noaa.gov/products-and-data"
 
-    def plot(self, axes=None, plot_type='sunspot SWO', **kwargs):
+    def plot(self, axes=None, plot_type='sunspot SWO', columns=None, **kwargs):
         """
         Plots NOAA Indices.
 
@@ -67,6 +67,8 @@ class NOAAIndicesTimeSeries(GenericTimeSeries):
             The axes on which to plot the TimeSeries.
         plot_type : {``"sunspot SWO"``, ``"sunspot RI"``, ``"sunspot compare"``, ``"radio"``, ``"geo"``}, optional
             The type of plot required. Defaults to ``"sunspot SWO"``.
+        columns : list[str], optional
+            Unused, but there to maintain uniformity among plot methods.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -76,9 +78,7 @@ class NOAAIndicesTimeSeries(GenericTimeSeries):
         `~matplotlib.axes.Axes`
             The plot axes.
         """
-        self._validate_data_for_plotting()
-        if axes is None:
-            axes = plt.gca()
+        axes, columns = self._setup_axes_columns(axes, columns)
 
         if plot_type == 'sunspot SWO':
             to_plot = ['sunspot SWO', 'sunspot SWO smooth']
@@ -108,10 +108,11 @@ class NOAAIndicesTimeSeries(GenericTimeSeries):
         axes.yaxis.grid(True, 'major')
         axes.xaxis.grid(True, 'major')
         axes.legend()
+        self._setup_x_axis(axes)
         return axes
 
     @peek_show
-    def peek(self, title="Solar Cycle Progression", plot_type='sunspot SWO', **kwargs):
+    def peek(self, title="Solar Cycle Progression", plot_type='sunspot SWO', columns=None, **kwargs):
         """
         Displays the NOAA Indices as a function of time by calling
         `~sunpy.timeseries.sources.noaa.NOAAPredictIndicesTimeSeries.plot`.
@@ -129,6 +130,8 @@ class NOAAIndicesTimeSeries(GenericTimeSeries):
             The title of the plot. Defaults to "Solar Cycle Progression".
         plot_type : {``"sunspot SWO"``, ``"sunspot RI"``, ``"sunspot compare"``, ``"radio"``, ``"geo"``}, optional
             The type of plot required. Defaults to ``"sunspot SWO"``.
+        columns : list[str], optional
+            Unused, but there to maintain uniformity among peek methods.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -171,8 +174,6 @@ class NOAAIndicesTimeSeries(GenericTimeSeries):
         # Convoluted time index handling
         data = data.set_index('time-tag')
         data.index = pd.DatetimeIndex(data.index.values)
-        data.index = pd.DatetimeIndex(parse_time(
-            [x for x in data.index.values]).isot.astype('datetime64'))
 
         # Add the units data, reported in radio flux values (sfu) originally.
         units = OrderedDict([('sunspot RI', u.dimensionless_unscaled),
@@ -226,10 +227,14 @@ class NOAAPredictIndicesTimeSeries(GenericTimeSeries):
     * `NOAA Product List <https://www.swpc.noaa.gov/products-and-data>`_
     """
 
-    # Class attribute used to specify the source class of the TimeSeries.
+    # Class attributes used to specify the source class of the TimeSeries
+    # and a URL to the mission website.
     _source = 'noaapredictindices'
+    _url = "https://www.swpc.noaa.gov/products-and-data"
 
-    def plot(self, axes=None, **plot_args):
+    _peek_title = "Solar Cycle Sunspot Number Prediction"
+
+    def plot(self, axes=None, columns=None, **plot_args):
         """
         Plots predicted NOAA Indices as a function of time from a pandas dataframe.
 
@@ -237,6 +242,8 @@ class NOAAPredictIndicesTimeSeries(GenericTimeSeries):
         ----------
         axes : `matplotlib.axes.Axes`, optional
             The axes on which to plot the TimeSeries.
+        columns : list[str], optional
+            Unused, but there to maintain uniformity among plot methods.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -246,10 +253,9 @@ class NOAAPredictIndicesTimeSeries(GenericTimeSeries):
         `~matplotlib.axes.Axes`
             The plot axes.
         """
-        self._validate_data_for_plotting()
+        axes, columns = self._setup_axes_columns(axes, columns)
+
         dataframe = self.to_dataframe()
-        if axes is None:
-            axes = plt.gca()
         dataframe['sunspot'].plot(color='b', **plot_args)
         dataframe['sunspot high'].plot(linestyle='--', color='b', **plot_args)
         dataframe['sunspot low'].plot(linestyle='--', color='b', **plot_args)
@@ -258,33 +264,8 @@ class NOAAPredictIndicesTimeSeries(GenericTimeSeries):
         axes.yaxis.grid(True, 'major')
         axes.xaxis.grid(True, 'major')
         axes.legend()
+        self._setup_x_axis(axes)
         return axes
-
-    @peek_show
-    def peek(self, title="Solar Cycle Sunspot Number Prediction", **plot_args):
-        """
-        Displays the predicted NOAA Indices as a function of time by calling
-        `~sunpy.timeseries.sources.noaa.NOAAPredictIndicesTimeSeries.plot`.
-
-        .. plot::
-
-            import sunpy.timeseries
-            noaa_url = 'https://services.swpc.noaa.gov/json/solar-cycle/predicted-solar-cycle.json'
-            noaa = sunpy.timeseries.TimeSeries(noaa_url, source='NOAAPredictIndices')
-            noaa.peek()
-
-        Parameters
-        ----------
-        title : `str`, optional
-            The title of the plot. Defaults to "Solar Cycle Sunspot Number Prediction".
-        **plot_args : `dict`
-            Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
-            functions.
-        """
-        axes = self.plot(**plot_args)
-        axes.set_title(title)
-        fig = plt.gcf()
-        return fig
 
     @classmethod
     def _parse_file(cls, filepath):
@@ -328,8 +309,6 @@ class NOAAPredictIndicesTimeSeries(GenericTimeSeries):
         # Convoluted time index handling
         data = data.set_index('time-tag')
         data.index = pd.DatetimeIndex(data.index.values)
-        data.index = pd.DatetimeIndex(parse_time(
-            [x for x in data.index.values]).isot.astype('datetime64'))
         # Add the units data, reported in radio flux values (sfu) originally.
         units = OrderedDict([('sunspot', u.dimensionless_unscaled),
                              ('sunspot high', u.dimensionless_unscaled),

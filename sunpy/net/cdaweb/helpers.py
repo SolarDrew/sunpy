@@ -28,16 +28,16 @@ def get_observatory_groups():
     >>>
     >>> groups = get_observatory_groups() #doctest: +REMOTE_DATA
     >>> groups['Group'] #doctest: +REMOTE_DATA
-        <Column name='Group' dtype='str55' length=75>
+        <Column name='Group' dtype='str55' length=...>
                         ACE
                       AMPTE
         ...
                     Voyager
                        Wind
     >>> groups.loc['STEREO'] #doctest: +REMOTE_DATA
-    <Row index=62>
+    <Row index=...>
     Group                                  Observatories
-    str55                                      str518
+    str55                                      str...
     ------ -----------------------------------------------------------------------------
     STEREO 'Ahead', 'Behind', 'STA', 'STB', 'STEREO', 'STEREOA', 'STEREOB', 'sta', 'stb'
     """

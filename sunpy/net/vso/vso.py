@@ -278,7 +278,8 @@ class VSOClient(BaseClient):
                 if name.count('"') >= 2:
                     name = name.split('"')[1]
 
-        if name is None:
+        # This is a hack to to prevent IRIS data from being labelled as XML files
+        if name is None and "VOEvent_IRIS" not in queryresponserow['fileid']:
             # Advice from the VSO is to fallback to providerid + fileid for a filename
             # As it's possible multiple providers give the same fileid.
             # However, I haven't implemented this yet as it would be a breaking
@@ -307,7 +308,7 @@ class VSOClient(BaseClient):
         return fname
 
     def fetch(self, query_response, path=None, methods=None, site=None,
-              progress=True, overwrite=False, downloader=None, wait=True):
+              progress=True, overwrite=False, downloader=None, wait=True, **kwargs):
         """
         Download data specified in the query_response.
 
@@ -406,7 +407,8 @@ class VSOClient(BaseClient):
                                         methods,
                                         downloader,
                                         str(path),
-                                        self.by_fileid(query_response))
+                                        self.by_fileid(query_response),
+                                        **kwargs)
 
         if dl_set and not wait:
             return err_results
@@ -466,7 +468,7 @@ class VSOClient(BaseClient):
 
         return self.make('VSOGetDataRequest', request=request)
 
-    def download_all(self, response, methods, downloader, path, qr, info=None):
+    def download_all(self, response, methods, downloader, path, qr, info=None, **kwargs):
         results = Results()
         GET_VERSION = [
             ('0.8', (5, 8)),
@@ -497,7 +499,8 @@ class VSOClient(BaseClient):
                             dataitem.url,
                             downloader,
                             path,
-                            qr[dataitem.fileiditem.fileid[0]]
+                            qr[dataitem.fileiditem.fileid[0]],
+                            **kwargs
                         )
                     except NoData:
                         results.add_error('', '', DownloadFailed(dresponse))
@@ -537,14 +540,14 @@ class VSOClient(BaseClient):
 
                 self.download_all(
                     self.api.service.GetData(request), methods, downloader, path,
-                    qr, info
+                    qr, info, **kwargs
                 )
             else:
                 results.add_error('', '', UnknownStatus(dresponse))
 
         return results
 
-    def download(self, method, url, downloader, *args):
+    def download(self, method, url, downloader, *args, **kwargs):
         """ Enqueue a file to be downloaded, extra args are passed to ``mk_filename``"""
         if method.startswith('URL'):
             return downloader.enqueue_file(url, filename=partial(self.mk_filename, *args))

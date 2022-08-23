@@ -3,12 +3,11 @@
 Creating a Full Sun Map with AIA and EUVI
 =========================================
 
-With SDO/AIA and STEREO/A and STEREO/B, it is now possible (given specific dates)
-to combine combine three EUV images from these satellites
-to produce a full latitude / longitude map of the Sun.
+With SDO/AIA and STEREO/A and STEREO/B, it is possible (for specific dates)
+to combine combine three EUV images from these satellites to produce a nearly
+full latitude / longitude map of the Sun.
 
-You will need an active internet connection as well as
-`reproject <https://reproject.readthedocs.io/en/stable/>`__ v0.6 or higher installed.
+You will need `reproject <https://reproject.readthedocs.io/en/stable/>`__ v0.6 or higher installed.
 """
 # sphinx_gallery_thumbnail_number = 4
 
@@ -24,25 +23,12 @@ from astropy.wcs import WCS
 import sunpy.map
 import sunpy.sun
 from sunpy.coordinates import get_body_heliographic_stonyhurst
-from sunpy.net import Fido
-from sunpy.net import attrs as a
+from sunpy.data.sample import AIA_193_JUN2012, STEREO_A_195_JUN2012, STEREO_B_195_JUN2012
 
 ######################################################################
-# To get started, let's download the data:
+# First create a sunpy map for each of the files.
 
-stereo = (a.Instrument("EUVI") &
-          a.Time('2011-11-01', '2011-11-01T00:10:00'))
-aia = (a.Instrument.aia &
-       a.Sample(24 * u.hour) &
-       a.Time('2011-11-01', '2011-11-02'))
-wave = a.Wavelength(19.5 * u.nm, 19.5 * u.nm)
-res = Fido.search(wave, aia | stereo)
-files = Fido.fetch(res)
-
-######################################################################
-# Next we create a sunpy map for each of the files.
-
-maps = sunpy.map.Map(sorted(files))
+maps = sunpy.map.Map(sorted([AIA_193_JUN2012, STEREO_A_195_JUN2012, STEREO_B_195_JUN2012]))
 
 ######################################################################
 # To reduce memory consumption we also downsample these maps before continuing,
@@ -64,22 +50,19 @@ maps[0].meta['rsun_ref'] = sunpy.sun.constants.radius.to_value(u.m)
 
 earth = get_body_heliographic_stonyhurst('earth', maps[0].date)
 
-plt.figure(figsize=(8, 8))
-r_unit = u.AU
-
-ax = plt.subplot(projection='polar')
-circle = plt.Circle((0.0, 0.0), (10*u.Rsun).to_value(r_unit),
+fig = plt.figure(figsize=(8, 8))
+ax = fig.add_subplot(projection='polar')
+circle = plt.Circle((0.0, 0.0), (10*u.Rsun).to_value(u.AU),
                     transform=ax.transProjectionAffine + ax.transAxes, color="yellow",
                     alpha=1, label="Sun")
 ax.add_artist(circle)
-ax.text(earth.lon.to_value("rad")+0.05, earth.radius.to_value(r_unit), "Earth")
+ax.text(earth.lon.to_value("rad")+0.05, earth.radius.to_value(u.AU), "Earth")
 
 for this_satellite, this_coord in [(m.observatory, m.observer_coordinate) for m in maps]:
-    ax.plot(this_coord.lon.to('rad'), this_coord.radius.to(r_unit), 'o', label=this_satellite)
+    ax.plot(this_coord.lon.to('rad'), this_coord.radius.to(u.AU), 'o', label=this_satellite)
 
 ax.set_theta_zero_location("S")
 ax.set_rlim(0, 1.3)
-
 ax.legend()
 
 plt.show()
@@ -114,6 +97,8 @@ array, footprint = reproject_and_coadd(maps, out_wcs, shape_out,
 
 outmap = sunpy.map.Map((array, header))
 outmap.plot_settings = maps[0].plot_settings
+
+plt.figure()
 outmap.plot()
 
 plt.show()
@@ -183,9 +168,9 @@ outmap = sunpy.map.Map((array, header))
 outmap.plot_settings = maps[0].plot_settings
 outmap.nickname = 'AIA + EUVI/A + EUVI/B'
 
-plt.figure(figsize=(10, 5))
-ax = plt.subplot(projection=out_wcs)
-im = outmap.plot(vmin=400)
+fig = plt.figure(figsize=(10, 5))
+ax = fig.add_subplot(projection=out_wcs)
+im = outmap.plot(axes=ax, vmin=400)
 
 lon, lat = ax.coords
 lon.set_coord_type("longitude")

@@ -4,8 +4,6 @@ This module provies a RHESSI `~sunpy.timeseries.TimeSeries` source.
 import itertools
 from collections import OrderedDict
 
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
 import numpy as np
 from pandas import DataFrame
 
@@ -16,7 +14,6 @@ import sunpy.io
 from sunpy.time import parse_time
 from sunpy.timeseries.timeseriesbase import GenericTimeSeries
 from sunpy.util.metadata import MetaDict
-from sunpy.visualization import peek_show
 
 __all__ = ['RHESSISummaryTimeSeries']
 
@@ -132,10 +129,14 @@ class RHESSISummaryTimeSeries(GenericTimeSeries):
     * `Mission Paper. <https://doi.org/10.1023/A:1022428818870>`_
     """
 
-    # Class attribute used to specify the source class of the TimeSeries.
+    # Class attributes used to specify the source class of the TimeSeries
+    # and a URL to the mission website.
     _source = 'rhessi'
+    _url = "https://hesperia.gsfc.nasa.gov/rhessi3/index.html"
 
-    def plot(self, axes=None, **kwargs):
+    _peek_title = "RHESSI Observing Summary Count Rate"
+
+    def plot(self, axes=None, columns=None, **kwargs):
         """
         Plots RHESSI count rate light curve.
 
@@ -143,6 +144,8 @@ class RHESSISummaryTimeSeries(GenericTimeSeries):
         ----------
         axes : `matplotlib.axes.Axes`, optional
             The axes on which to plot the TimeSeries. Defaults to current axes.
+        columns : list[str], optional
+            If provided, only plot the specified columns.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -152,55 +155,24 @@ class RHESSISummaryTimeSeries(GenericTimeSeries):
         `~matplotlib.axes.Axes`
             The plot axes.
         """
-        self._validate_data_for_plotting()
-        if axes is None:
-            axes = plt.gca()
+        axes, columns = self._setup_axes_columns(axes, columns)
+
         # These are a matplotlib version of the default RHESSI color cycle
         default_colors = ('black', 'tab:pink', 'tab:green', 'tab:cyan',
                           'tab:olive', 'tab:red', 'tab:blue', 'tab:orange',
                           'tab:brown')
         colors = kwargs.pop('colors', default_colors)
         for color, (item, frame) in zip(itertools.cycle(colors),
-                                        self.to_dataframe().items()):
-            axes.plot(self.to_dataframe().index, frame.values,
+                                        self._data[columns].items()):
+            axes.plot(self.to_dataframe()[columns].index, frame.values,
                       color=color, label=item, **kwargs)
         axes.set_yscale("log")
         axes.set_ylabel('Count Rate s$^{-1}$ detector$^{-1}$')
         axes.yaxis.grid(True, 'major')
         axes.xaxis.grid(False, 'major')
         axes.legend()
-        locator = mdates.AutoDateLocator()
-        formatter = mdates.ConciseDateFormatter(locator)
-        axes.xaxis.set_major_locator(locator)
-        axes.xaxis.set_major_formatter(formatter)
+        self._setup_x_axis(axes)
         return axes
-
-    @peek_show
-    def peek(self, title="RHESSI Observing Summary Count Rate", **kwargs):
-        """
-        Displays the RHESSI Count Rate light curve by calling
-        `~sunpy.timeseries.sources.rhessi.RHESSISummaryTimeSeries.plot`.
-
-        .. plot::
-
-            import sunpy.data.sample
-            import sunpy.timeseries
-            rhessi = sunpy.timeseries.TimeSeries(sunpy.data.sample.RHESSI_TIMESERIES, source='RHESSI')
-            rhessi.peek()
-
-        Parameters
-        ----------
-        title : `str`
-            The title of the plot. Defaults to "RHESSI Observing Summary Count Rate".
-        **kwargs : `dict`
-            Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
-            functions.
-        """
-        fig, ax = plt.subplots()
-        axes = self.plot(axes=ax, **kwargs)
-        axes.set_title(title)
-        fig.autofmt_xdate()
-        return fig
 
     @classmethod
     def _parse_file(cls, filepath):

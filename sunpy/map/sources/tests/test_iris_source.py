@@ -1,31 +1,23 @@
-"""Test cases for SJIMap.
-This particular test file pertains to SJIMap.
-@Author: Pritish C. (VaticanCameos)
 """
-
-import os
-import glob
-
+Test cases for IRIS SJIMap
+"""
 import pytest
 
 import astropy.units as u
 
-import sunpy.data.test
-from sunpy.map import Map
+from sunpy.data.test import get_dummy_map_from_header, get_test_filepath
 from sunpy.map.sources.iris import SJIMap
-from sunpy.util.exceptions import SunpyMetadataWarning, SunpyUserWarning
+from sunpy.util.exceptions import SunpyMetadataWarning
+
+__author__ = 'Pritish C. (VaticanCameos)'
 
 
 @pytest.fixture
 def irismap():
-    path = sunpy.data.test.rootdir
-    fitspath = glob.glob(os.path.join(
-        path, "iris_l2_20130801_074720_4040000014_SJI_1400_t000.fits"))
-    with pytest.warns(SunpyUserWarning, match='This file contains more than 2 dimensions'):
-        return Map(fitspath, silence_errors=True)
+    header = get_test_filepath("iris_l2_20130801_074720_4040000014_SJI_1400_t000.header")
+    return get_dummy_map_from_header(header)
 
 
-# IRIS Tests
 def test_fitstoIRIS(irismap):
     """Tests the creation of SJIMap using FITS."""
     assert (isinstance(irismap, SJIMap))
@@ -41,6 +33,21 @@ def test_is_datasource_for(irismap):
 def test_observatory(irismap):
     """Tests the observatory property of SJIMap."""
     assert irismap.observatory == "IRIS"
+
+
+def test_wavelength(irismap):
+    """Tests the wavelength and waveunit property of the SJIMap"""
+    assert irismap.wavelength == u.Quantity(1400, 'Angstrom')
+
+
+def test_level_number(irismap):
+    """Tests the processing_level property of the SJIMap"""
+    assert irismap.processing_level == 2.0
+
+
+def test_units(irismap):
+    """Tests the unit property of the SJIMap"""
+    assert irismap.unit == u.ct
 
 
 def test_wcs(irismap):

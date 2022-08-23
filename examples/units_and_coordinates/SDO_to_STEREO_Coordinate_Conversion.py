@@ -15,29 +15,8 @@ from astropy.coordinates import SkyCoord
 
 import sunpy.coordinates
 import sunpy.map
-from sunpy.net import Fido
-from sunpy.net import attrs as a
+from sunpy.data.sample import AIA_193_JUN2012, STEREO_A_195_JUN2012
 from sunpy.sun import constants
-
-###############################################################################
-# The first step is to download some data. We download an image from STEREO-A
-# and an image from SDO, which are separated in longitude.
-
-stereo = (a.Source('STEREO_A') &
-          a.Instrument("EUVI") &
-          a.Time('2021-01-01 00:06', '2021-01-01 00:07'))
-aia = (a.Instrument.aia &
-       a.Sample(24 * u.hour) &
-       a.Time('2021-01-01 00:06', '2021-01-02 00:06'))
-wave = a.Wavelength(30 * u.nm, 31 * u.nm)
-res = Fido.search(wave, aia | stereo)
-print(res)
-
-###############################################################################
-# Download the files.
-
-files = Fido.fetch(res)
-print(files)
 
 ###############################################################################
 # Create a dictionary with the two maps, cropped down to full disk.
@@ -45,7 +24,7 @@ print(files)
 maps = {m.detector: m.submap(SkyCoord([-1100, 1100]*u.arcsec,
                                       [-1100, 1100]*u.arcsec,
                                       frame=m.coordinate_frame))
-        for m in sunpy.map.Map(files)}
+        for m in sunpy.map.Map([AIA_193_JUN2012, STEREO_A_195_JUN2012])}
 maps['AIA'].plot_settings['vmin'] = 0  # set the minimum plotted pixel value
 
 
@@ -69,18 +48,18 @@ for i, m in enumerate(maps.values()):
 ###############################################################################
 # We are now going to pick out a region around the south west corner:
 
-aia_bottom_left = SkyCoord(-800 * u.arcsec,
-                           -300 * u.arcsec,
+aia_bottom_left = SkyCoord(700 * u.arcsec,
+                           100 * u.arcsec,
                            frame=maps['AIA'].coordinate_frame)
-aia_top_right = SkyCoord(-600 * u.arcsec,
-                         -50 * u.arcsec,
+aia_top_right = SkyCoord(850 * u.arcsec,
+                         350 * u.arcsec,
                          frame=maps['AIA'].coordinate_frame)
 
 ###############################################################################
 # Plot a rectangle around the region we want to crop.
 
 fig = plt.figure()
-ax = fig.add_subplot(111, projection=maps['AIA'])
+ax = fig.add_subplot(projection=maps['AIA'])
 maps['AIA'].plot(axes=ax)
 maps['AIA'].draw_quadrangle(aia_bottom_left, top_right=aia_top_right)
 
@@ -90,10 +69,10 @@ maps['AIA'].draw_quadrangle(aia_bottom_left, top_right=aia_top_right)
 subaia = maps['AIA'].submap(aia_bottom_left, top_right=aia_top_right)
 fig = plt.figure()
 ax = fig.add_subplot(projection=subaia)
-subaia.plot()
+subaia.plot(axes=ax)
 
-feature_aia = SkyCoord(-706 * u.arcsec,
-                       -181 * u.arcsec,
+feature_aia = SkyCoord(800 * u.arcsec,
+                       300 * u.arcsec,
                        frame=maps['AIA'].coordinate_frame)
 ax.plot_coord(feature_aia, 'bx', fillstyle='none', markersize=20)
 
@@ -114,11 +93,11 @@ print(feature_aia.transform_to(maps['EUVI'].coordinate_frame))
 
 fig = plt.figure(figsize=(10, 4))
 
-ax1 = fig.add_subplot(1, 2, 1, projection=maps['AIA'])
+ax1 = fig.add_subplot(121, projection=maps['AIA'])
 maps['AIA'].plot(axes=ax1)
 maps['AIA'].draw_quadrangle(aia_bottom_left, top_right=aia_top_right, axes=ax1)
 
-ax2 = fig.add_subplot(1, 2, 2, projection=maps['EUVI'])
+ax2 = fig.add_subplot(122, projection=maps['EUVI'])
 maps['EUVI'].plot(axes=ax2)
 maps['AIA'].draw_quadrangle(aia_bottom_left, top_right=aia_top_right, axes=ax2)
 
@@ -130,13 +109,13 @@ maps['AIA'].draw_quadrangle(aia_bottom_left, top_right=aia_top_right, axes=ax2)
 
 fig = plt.figure(figsize=(15, 5))
 
-ax1 = fig.add_subplot(1, 2, 1, projection=subaia)
+ax1 = fig.add_subplot(121, projection=subaia)
 subaia.plot(axes=ax1)
 ax1.plot_coord(feature_aia, 'bx', fillstyle='none', markersize=20)
 
 subeuvi = maps['EUVI'].submap(aia_bottom_left, top_right=aia_top_right)
 
-ax2 = fig.add_subplot(1, 2, 2, projection=subeuvi)
+ax2 = fig.add_subplot(122, projection=subeuvi)
 subeuvi.plot(axes=ax2)
 maps['AIA'].draw_quadrangle(aia_bottom_left, top_right=aia_top_right, axes=ax2)
 ax2.plot_coord(feature_aia, 'bx', fillstyle='none', markersize=20)

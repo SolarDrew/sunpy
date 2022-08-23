@@ -20,8 +20,7 @@ from astropy.coordinates import SkyCoord
 
 import sunpy.map
 from sunpy.coordinates import get_body_heliographic_stonyhurst
-from sunpy.net import Fido
-from sunpy.net import attrs as a
+from sunpy.data.sample import AIA_193_JUN2012, STEREO_A_195_JUN2012
 
 ######################################################################
 # In this example we are going to make a lot of side by side figures, so
@@ -30,28 +29,11 @@ from sunpy.net import attrs as a
 plt.rcParams['figure.figsize'] = (16, 8)
 
 ######################################################################
-# Let's download an EUV image from both AIA and EUVI A, when the
-# two spacecraft were separated by approximately 120 degrees.
-
-euvi = (a.Source('STEREO_A') &
-        a.Instrument("EUVI") &
-        a.Time('2011-11-01', '2011-11-01T00:10:00'))
-
-aia = (a.Instrument.aia &
-       a.Sample(24 * u.hour) &
-       a.Time('2011-11-01', '2011-11-02'))
-
-wave = a.Wavelength(19.5 * u.nm, 19.5 * u.nm)
-
-res = Fido.search(wave, aia | euvi)
-files = Fido.fetch(res)
-
-######################################################################
 # Create a map for each image, after making sure to sort by the
 # appropriate name attribute (i.e., "AIA" and "EUVI") so that the
 # order is reliable.
 
-map_list = sunpy.map.Map(files)
+map_list = sunpy.map.Map([AIA_193_JUN2012, STEREO_A_195_JUN2012])
 map_list.sort(key=lambda m: m.detector)
 map_aia, map_euvi = map_list
 
@@ -67,12 +49,12 @@ map_euvi = map_euvi.resample(out_shape * u.pix)
 
 fig = plt.figure()
 
-ax1 = fig.add_subplot(1, 2, 1, projection=map_aia)
+ax1 = fig.add_subplot(121, projection=map_aia)
 map_aia.plot(axes=ax1)
 map_aia.draw_limb(axes=ax1, color='white')
 map_euvi.draw_limb(axes=ax1, color='red')
 
-ax2 = fig.add_subplot(1, 2, 2, projection=map_euvi)
+ax2 = fig.add_subplot(122, projection=map_euvi)
 map_euvi.plot(axes=ax2)
 limb_aia = map_aia.draw_limb(axes=ax2, color='white')
 limb_euvi = map_euvi.draw_limb(axes=ax2, color='red')
@@ -107,9 +89,9 @@ outmap = map_euvi.reproject_to(out_header)
 # SDO, next to the AIA image.
 
 fig = plt.figure()
-ax1 = fig.add_subplot(1, 2, 1, projection=map_aia)
+ax1 = fig.add_subplot(121, projection=map_aia)
 map_aia.plot(axes=ax1)
-ax2 = fig.add_subplot(1, 2, 2, projection=outmap)
+ax2 = fig.add_subplot(122, projection=outmap)
 outmap.plot(axes=ax2, title='EUVI image as seen from SDO')
 map_euvi.draw_limb(color='blue')
 
@@ -157,11 +139,11 @@ outmap = map_aia.reproject_to(mars_header)
 
 fig = plt.figure()
 
-ax1 = fig.add_subplot(1, 2, 1, projection=map_aia)
+ax1 = fig.add_subplot(121, projection=map_aia)
 map_aia.plot(axes=ax1)
 map_aia.draw_grid(color='w')
 
-ax2 = fig.add_subplot(1, 2, 2, projection=outmap)
+ax2 = fig.add_subplot(122, projection=outmap)
 outmap.plot(axes=ax2, title='AIA observation as seen from Mars')
 map_aia.draw_grid(color='w')
 map_aia.draw_limb(color='blue')

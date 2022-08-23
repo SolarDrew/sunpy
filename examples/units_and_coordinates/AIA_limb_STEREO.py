@@ -14,37 +14,14 @@ from astropy.coordinates import SkyCoord
 
 import sunpy.coordinates.wcs_utils
 import sunpy.map
-from sunpy.net import Fido
-from sunpy.net import attrs as a
-
-###############################################################################
-# The first step is to download some data. We download an image from STEREO-A
-# and an image from SDO, which are separated in longitude.
-
-stereo = (a.Source('STEREO_A') &
-          a.Instrument("EUVI") &
-          a.Time('2021-01-01 00:06', '2021-01-01 00:07'))
-
-aia = (a.Instrument.aia &
-       a.Sample(24 * u.hour) &
-       a.Time('2021-01-01 00:06', '2021-01-02 00:06'))
-
-wave = a.Wavelength(30 * u.nm, 31 * u.nm)
-result = Fido.search(wave, aia | stereo)
-
-###############################################################################
-# Let's inspect the result and download the files.
-
-print(result)
-downloaded_files = Fido.fetch(result)
-print(downloaded_files)
+from sunpy.data.sample import AIA_193_JUN2012, STEREO_B_195_JUN2012
 
 ##############################################################################
 # Let's create a dictionary with the two maps, which we crop to full disk.
 
 maps = {m.detector: m.submap(SkyCoord([-1100, 1100], [-1100, 1100],
                                       unit=u.arcsec, frame=m.coordinate_frame))
-        for m in sunpy.map.Map(downloaded_files)}
+        for m in sunpy.map.Map([AIA_193_JUN2012, STEREO_B_195_JUN2012])}
 maps['AIA'].plot_settings['vmin'] = 0  # set the minimum plotted pixel value
 
 ##############################################################################
@@ -53,13 +30,13 @@ maps['AIA'].plot_settings['vmin'] = 0  # set the minimum plotted pixel value
 # the far side of the Sun from STEREO's point of view.
 
 fig = plt.figure(figsize=(10, 4))
-ax1 = fig.add_subplot(1, 2, 1, projection=maps['AIA'])
+ax1 = fig.add_subplot(121, projection=maps['AIA'])
 maps['AIA'].plot(axes=ax1)
-maps['AIA'].draw_limb()
+maps['AIA'].draw_limb(axes=ax1)
 
-ax2 = fig.add_subplot(1, 2, 2, projection=maps['EUVI'])
+ax2 = fig.add_subplot(122, projection=maps['EUVI'])
 maps['EUVI'].plot(axes=ax2)
-visible, hidden = maps['AIA'].draw_limb()
+visible, hidden = maps['AIA'].draw_limb(axes=ax2)
 hidden.remove()
 
 ##############################################################################
@@ -68,9 +45,9 @@ hidden.remove()
 # edge of the plot will have corresponding ticks and tick labels.
 
 fig = plt.figure()
-ax = plt.subplot(projection=maps['EUVI'])
+ax = fig.add_subplot(projection=maps['EUVI'])
 
-maps['EUVI'].plot()
+maps['EUVI'].plot(axes=ax)
 
 # Crop the view using pixel coordinates
 ax.set_xlim(500, 1300)

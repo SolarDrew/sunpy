@@ -1,13 +1,13 @@
 """
 Test mapsequence functionality
 """
-from unittest import mock
 
 import numpy as np
 import pytest
 
 import astropy.units as u
 from astropy.tests.helper import assert_quantity_allclose
+from astropy.visualization import ImageNormalize
 
 import sunpy
 import sunpy.data.test
@@ -168,21 +168,18 @@ def test_repr_html(mapsequence_all_the_same):
         assert m._repr_html_() in html_string
 
 
-def test_quicklook(mapsequence_all_the_same):
-    with mock.patch('webbrowser.open_new_tab') as mockwbopen:
-        mapsequence_all_the_same.quicklook()
-
+def test_quicklook(mocker, mapsequence_all_the_same):
+    mockwbopen = mocker.patch('webbrowser.open_new_tab')
+    mapsequence_all_the_same.quicklook()
     # Check that the mock web browser was opened with a file URL
     mockwbopen.assert_called_once()
     file_url = mockwbopen.call_args[0][0]
     assert file_url.startswith('file://')
-
     # Open the file specified in the URL and confirm that it contains the HTML
     with open(file_url[7:], 'r') as f:
         html_string = f.read()
-
-        for m in mapsequence_all_the_same.maps:
-            assert m._repr_html_() in html_string
+    for m in mapsequence_all_the_same.maps:
+        assert m._repr_html_() in html_string
 
 
 @figure_test
@@ -197,6 +194,13 @@ def test_norm_animator(hmi_test_map):
 def test_map_sequence_plot(aia171_test_map, hmi_test_map):
     seq = sunpy.map.Map([aia171_test_map, hmi_test_map], sequence=True)
     seq.plot()
+
+
+@figure_test
+def test_map_sequence_plot_custom_cmap_norm(aia171_test_map, hmi_test_map):
+    seq = sunpy.map.Map([aia171_test_map, hmi_test_map], sequence=True)
+    animation = seq.plot(cmap='Greys', norm=ImageNormalize(vmin=0, vmax=100))
+    animation._step()
 
 
 def test_save(aia171_test_map, hmi_test_map, tmp_path):

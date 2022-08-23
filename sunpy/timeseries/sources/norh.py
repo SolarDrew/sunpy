@@ -48,13 +48,15 @@ class NoRHTimeSeries(GenericTimeSeries):
     * `Analysis Manual <https://solar.nro.nao.ac.jp/norh/doc/manuale/index.html>`_
     * `Nobeyama Correlation Plots <https://solar.nro.nao.ac.jp/norh/html/cor_plot/>`_
     """
-    # Class attribute used to specify the source class of the TimeSeries.
+    # Class attributes used to specify the source class of the TimeSeries
+    # and a URL to the mission website.
     _source = 'norh'
+    _url = "https://solar.nro.nao.ac.jp/norh/"
 
     def __init__(self, data, header, units, **kwargs):
         super().__init__(data, header, units, **kwargs)
 
-    def plot(self, axes=None, **kwargs):
+    def plot(self, axes=None, columns=None, **kwargs):
         """
         Plot the NoRH lightcurve.
 
@@ -62,6 +64,8 @@ class NoRHTimeSeries(GenericTimeSeries):
         ----------
         axes : `matplotlib.axes.Axes`, optional
             The axes on which to plot the TimeSeries. Defaults to current axes.
+        columns : list[str], optional
+            Unused, but there to maintain uniformity among plot methods.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
@@ -71,22 +75,21 @@ class NoRHTimeSeries(GenericTimeSeries):
         `~matplotlib.axes.Axes`
             The plot axes.
         """
-        self._validate_data_for_plotting()
-        if axes is None:
-            axes = plt.gca()
+        axes, columns = self._setup_axes_columns(axes, columns)
+
         plt.xticks(rotation=30)
         data_lab = str(self.meta.get('OBS-FREQ').values()).replace('[', '').replace(
             ']', '').replace('\'', '')
         axes.plot(self.to_dataframe(), label=data_lab, **kwargs)
         axes.set_yscale("log")
         axes.set_ylim(1e-4, 1)
-        axes.set_xlabel('Start time: ' + self.to_dataframe().index[0].strftime(TIME_FORMAT))
         axes.set_ylabel('Correlation')
         axes.legend()
+        self._setup_x_axis(axes)
         return axes
 
     @peek_show
-    def peek(self, title="Nobeyama Radioheliograph", **kwargs):
+    def peek(self, title="Nobeyama Radioheliograph", columns=None, **kwargs):
         """
         Displays the NoRH lightcurve TimeSeries by calling
         `~sunpy.timeseries.sources.norh.NoRHTimeSeries.plot`.
@@ -102,6 +105,8 @@ class NoRHTimeSeries(GenericTimeSeries):
         ----------
         title : `str`, optional
             The title of the plot. Defaults to "Nobeyama Radioheliograph".
+        columns : list[str], optional
+            Unused, but there to maintain uniformity among peek methods.
         **kwargs : `dict`
             Additional plot keyword arguments that are handed to `~matplotlib.axes.Axes.plot`
             functions.
